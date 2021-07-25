@@ -158,7 +158,7 @@ typedef struct ffui_checkbox {
 	uint action_id;
 } ffui_checkbox;
 
-static void _ffui_checkbox_clicked(GtkWidget *widget, gpointer udata);
+void _ffui_checkbox_clicked(GtkWidget *widget, gpointer udata);
 static inline int ffui_checkbox_create(ffui_checkbox *cb, ffui_wnd *parent)
 {
 	cb->h = gtk_check_button_new();
@@ -175,6 +175,16 @@ static inline void ffui_checkbox_settextstr(ffui_checkbox *cb, const ffstr *text
 	char *sz = ffsz_alcopystr(text);
 	gtk_button_set_label(GTK_BUTTON(cb->h), sz);
 	ffmem_free(sz);
+}
+static inline ffbool ffui_checkbox_checked(ffui_checkbox *cb)
+{
+	return gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(cb->h));
+}
+static inline void ffui_checkbox_check(ffui_checkbox *cb, int val)
+{
+	g_signal_handlers_block_by_func(cb->h, G_CALLBACK(_ffui_checkbox_clicked), cb);
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(cb->h), val);
+	g_signal_handlers_unblock_by_func(cb->h, G_CALLBACK(_ffui_checkbox_clicked), cb);
 }
 
 
@@ -217,6 +227,7 @@ static inline void ffui_edit_textstr(ffui_edit *e, ffstr *s)
 	const gchar *sz = gtk_entry_get_text(GTK_ENTRY(e->h));
 	ffsize len = ffsz_len(sz);
 	char *p = ffsz_dupn(sz, len);
+	FF_ASSERT(s->ptr == NULL);
 	ffstr_set(s, p, len);
 }
 
@@ -618,15 +629,9 @@ static inline void ffui_wnd_setplacement(ffui_wnd *w, uint showcmd, const ffui_p
 	gtk_window_set_default_size(w->h, pos->cx, pos->cy);
 }
 
-static void _ffui_checkbox_clicked(GtkWidget *widget, gpointer udata)
-{
-	ffui_checkbox *cb = udata;
-	cb->wnd->on_action(cb->wnd, cb->action_id);
-}
-
 
 // MESSAGE LOOP
-#define ffui_run()  gtk_main()
+FF_EXTN void ffui_run();
 
 #define ffui_quitloop()  gtk_main_quit()
 
@@ -673,6 +678,7 @@ FF_EXTN size_t ffui_send(void *ctl, uint id, void *udata);
 #define ffui_send_edit_textstr(ctl, str_dst)  ffui_send(ctl, FFUI_EDIT_GETTEXT, str_dst)
 #define ffui_send_text_settextstr(ctl, str)  ffui_send(ctl, FFUI_TEXT_SETTEXT, (void*)str)
 #define ffui_send_text_addtextstr(ctl, str)  ffui_send(ctl, FFUI_TEXT_ADDTEXT, (void*)str)
+#define ffui_send_checkbox_settextz(ctl, sz)  ffui_send(ctl, FFUI_CHECKBOX_SETTEXTZ, (void*)sz)
 #define ffui_send_wnd_settext(ctl, sz)  ffui_send(ctl, FFUI_WND_SETTEXT, (void*)sz)
 #define ffui_post_wnd_show(ctl, show)  ffui_send(ctl, FFUI_WND_SHOW, (void*)(ffsize)show)
 #define ffui_send_view_rm(ctl, it)  ffui_send(ctl, FFUI_VIEW_RM, it)
@@ -710,7 +716,7 @@ static inline int ffui_send_tab_count(ffui_tab *ctl)
 	return n;
 }
 
-#define ffui_send_stbar_settextz(sb, sz)  ffui_send(sb, FFUI_STBAR_SETTEXT, sz)
+#define ffui_send_stbar_settextz(sb, sz)  ffui_send(sb, FFUI_STBAR_SETTEXT, (void*)sz)
 
 
 typedef void* (*ffui_ldr_getctl_t)(void *udata, const ffstr *name);

@@ -5,10 +5,12 @@ Copyright (c) 2019 Simon Zolin
 #include <FF/gui-gtk/gtk.h>
 #include <FF/net/url.h>
 #include <FFOS/atomic.h>
+#include <FFOS/thread.h>
 
 
 // MENU
 // BUTTON
+// CHECKBOX
 // LABEL
 // EDITBOX
 // TRACKBAR
@@ -20,6 +22,13 @@ Copyright (c) 2019 Simon Zolin
 // WINDOW
 // MESSAGE LOOP
 
+ffuint64 _ffui_thd_id;
+
+void ffui_run()
+{
+	_ffui_thd_id = ffthread_curid();
+	gtk_main();
+}
 
 #define sig_disable(h, func, udata) \
 	g_signal_handlers_disconnect_matched(h, G_SIGNAL_MATCH_FUNC | G_SIGNAL_MATCH_DATA, 0, 0, 0, G_CALLBACK(func), udata)
@@ -63,6 +72,14 @@ int ffui_btn_create(ffui_btn *b, ffui_wnd *parent)
 	b->wnd = parent;
 	g_signal_connect(b->h, "clicked", G_CALLBACK(&_ffui_btn_clicked), b);
 	return 0;
+}
+
+
+// CHECKBOX
+void _ffui_checkbox_clicked(GtkWidget *widget, gpointer udata)
+{
+	ffui_checkbox *cb = udata;
+	cb->wnd->on_action(cb->wnd, cb->action_id);
 }
 
 
@@ -751,6 +768,9 @@ static gboolean _ffui_send_handler(gpointer data)
 	case FFUI_WND_SETTEXT:
 		ffui_wnd_settextz((ffui_wnd*)c->ctl, c->udata);
 		break;
+	case FFUI_CHECKBOX_SETTEXTZ:
+		ffui_checkbox_settextz((ffui_checkbox*)c->ctl, c->udata);
+		break;
 	case FFUI_WND_SHOW:
 		ffui_show((ffui_wnd*)c->ctl, (ffsize)c->udata);
 		break;
@@ -831,6 +851,10 @@ size_t ffui_send(void *ctl, uint id, void *udata)
 	c.ref = 1;
 	ffatom_fence_rel();
 
+	if (ffthread_curid() == _ffui_thd_id) {
+		return _ffui_send_handler(&c);
+	}
+
 	if (0 != post_locked(&_ffui_send_handler, &c)) {
 		ffatom_waitchange(&c.ref, 1);
 		return (size_t)c.udata;
@@ -853,6 +877,11 @@ void ffui_post(void *ctl, uint id, void *udata)
 			ffmem_free(c);
 		quit = 1;
 		fflk_unlock(&quit_lk);
+		return;
+	}
+
+	if (ffthread_curid() == _ffui_thd_id) {
+		_ffui_send_handler(c);
 		return;
 	}
 

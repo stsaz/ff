@@ -11,9 +11,7 @@ Copyright (c) 2018 Simon Zolin
 #endif
 
 #include <FF/aformat/flac.h>
-#include <FF/aformat/mp3.h>
 #include <FF/aformat/mpc.h>
-#include <FF/aformat/wav.h>
 #include <FF/audio/aac.h>
 #include <FF/audio/alac.h>
 #include <FF/audio/ape.h>
@@ -27,11 +25,7 @@ Copyright (c) 2018 Simon Zolin
 #include <FF/audio/soxr.h>
 #include <FF/audio/vorbis.h>
 #include <FF/audio/wavpack.h>
-#include <FF/mformat/avi.h>
-#include <FF/mformat/mkv.h>
-#include <FF/mformat/ogg.h>
 #include <FF/mtags/apetag.h>
-#include <FF/mtags/id3.h>
 #include <FF/mtags/mmtag.h>
 #include <FF/mtags/vorbistag.h>
 
