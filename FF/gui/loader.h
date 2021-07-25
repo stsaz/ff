@@ -5,8 +5,8 @@ Copyright (c) 2014 Simon Zolin
 #pragma once
 
 #include <FF/gui/winapi.h>
-#include <FF/data/parse.h>
-#include <FF/data/conf.h>
+#include <FF/data/conf2-scheme.h>
+#include <FF/data/conf2-writer.h>
 
 
 typedef struct ffui_loader ffui_loader;
@@ -33,7 +33,7 @@ struct ffui_loader {
 	ffui_ldr_getctl_t getctl;
 	ffui_ldr_getcmd_t getcmd;
 	void *udata;
-	ffpars_ctx ctx;
+	uint list_idx;
 
 	ffvec paned_array; // ffui_paned*[].  User must free the controls and vector manually.
 	ffarr accels; //ffui_wnd_hotkey[]
@@ -79,6 +79,7 @@ struct ffui_loader {
 	uint style_horizontal :1;
 	uint auto_pos :1;
 	uint man_pos :1;
+	uint style_reset :1;
 };
 
 FF_EXTN void ffui_ldr_init(ffui_loader *g);

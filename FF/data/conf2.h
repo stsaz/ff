@@ -22,6 +22,7 @@ Data format:
 A key or value MAY be enclosed in quotes
  but MUST be enclosed in quotes if it contains whitespace ("value with space")
  or contains braces {} ("{value with braces}")
+ or contains '#'
  or is empty ("").
 Whitespace around a key or value is trimmed,
  but whitespace within quotes is preserved.
@@ -66,7 +67,6 @@ Advantage over YAML:
 
 #pragma once
 
-#include <FF/string.h>
 #include <ffbase/vector.h>
 
 typedef struct ffconf {
@@ -196,7 +196,7 @@ static inline int ffconf_parse(ffconf *c, ffstr *data)
 				|| c->state == I_SPC_AFTE_KEY
 				|| c->state == I_SPC_AFTE_VAL
 				|| (c->state == I_SPC_BEFO_VAL && c->nextval))))
-			return FFCONF_EINCOMPLETE;
+			return -FFCONF_EINCOMPLETE;
 		return 0;
 	}
 

@@ -5,7 +5,7 @@ Copyright (c) 2019 Simon Zolin
 #pragma once
 
 #include <FF/array.h>
-#include <FF/data/parse.h>
+#include <FF/data/conf2-writer.h>
 #include <gtk/gtk.h>
 
 
@@ -642,24 +642,25 @@ FF_EXTN void ffui_thd_post(ffui_handler func, void *udata, uint flags);
 
 enum FFUI_MSG {
 	FFUI_QUITLOOP,
-	FFUI_LBL_SETTEXT,
+	FFUI_CHECKBOX_SETTEXTZ,
 	FFUI_EDIT_GETTEXT,
-	FFUI_TEXT_SETTEXT,
-	FFUI_TEXT_ADDTEXT,
-	FFUI_WND_SETTEXT,
-	FFUI_WND_SHOW,
-	FFUI_VIEW_RM,
-	FFUI_VIEW_CLEAR,
-	FFUI_VIEW_GETSEL,
-	FFUI_VIEW_SETDATA,
-	FFUI_VIEW_SCROLLSET,
-	FFUI_TRK_SETRANGE,
-	FFUI_TRK_SET,
-	FFUI_TAB_INS,
-	FFUI_TAB_SETACTIVE,
+	FFUI_LBL_SETTEXT,
+	FFUI_STBAR_SETTEXT,
 	FFUI_TAB_ACTIVE,
 	FFUI_TAB_COUNT,
-	FFUI_STBAR_SETTEXT,
+	FFUI_TAB_INS,
+	FFUI_TAB_SETACTIVE,
+	FFUI_TEXT_ADDTEXT,
+	FFUI_TEXT_SETTEXT,
+	FFUI_TRK_SET,
+	FFUI_TRK_SETRANGE,
+	FFUI_VIEW_CLEAR,
+	FFUI_VIEW_GETSEL,
+	FFUI_VIEW_RM,
+	FFUI_VIEW_SCROLLSET,
+	FFUI_VIEW_SETDATA,
+	FFUI_WND_SETTEXT,
+	FFUI_WND_SHOW,
 };
 
 /**
@@ -726,7 +727,6 @@ typedef struct ffui_loader {
 	ffui_ldr_getctl_t getctl;
 	ffui_ldr_getcmd_t getcmd;
 	void *udata;
-	ffpars_ctx ctx;
 	ffstr path;
 	ffarr accels; //ffui_wnd_hotkey[]
 
@@ -738,6 +738,7 @@ typedef struct ffui_loader {
 	ffui_menu *menu;
 	void *mi;
 	GtkWidget *hbox;
+	uint list_idx;
 	union {
 		ffui_ctl *ctl;
 		ffui_label *lbl;
@@ -809,8 +810,6 @@ struct ffui_ldr_ctl {
 @name: e.g. "window.control" */
 FF_EXTN void* ffui_ldr_findctl(const ffui_ldr_ctl *ctx, void *ctl, const ffstr *name);
 
-
-#include <FF/data/conf.h>
 
 typedef struct ffui_loaderw {
 	ffui_ldr_getctl_t getctl;

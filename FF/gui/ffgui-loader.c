@@ -3,21 +3,31 @@ Copyright (c) 2014 Simon Zolin
 */
 
 #include <FF/gui/loader.h>
-#include <FF/data/conf.h>
 #include <FF/path.h>
 #include <FF/pic/pic.h>
-#include <FFOS/error.h>
 #include <FFOS/file.h>
 
 
 static void* ldr_getctl(ffui_loader *g, const ffstr *name);
 
-#define _F  FFPARS_DST
-#define T_INTLIST  (FFPARS_TINT | FFPARS_FLIST)
-#define T_INTLIST_S  (FFPARS_TINT | FFPARS_FSIGN | FFPARS_FLIST)
-#define T_STRLIST  (FFPARS_TSTR | FFPARS_FLIST)
+#define _F(f)  (ffsize)(f)
+#define T_CLOSE  FFCONF_TCLOSE
+#define T_OBJ  FFCONF_TOBJ
+#define T_OBJMULTI  (FFCONF_TOBJ | FFCONF_FMULTI)
+#define T_INT32  FFCONF_TINT32
+#define T_INTLIST  (FFCONF_TINT32 | FFCONF_FLIST)
+#define T_INTLIST_S  (FFCONF_TINT32 | FFCONF_FSIGN | FFCONF_FLIST)
+#define T_STR  FFCONF_TSTR
+#define T_STRLIST  (FFCONF_TSTR | FFCONF_FLIST)
 #define FF_XSPACE  2
 #define FF_YSPACE  2
+
+static void state_reset(ffui_loader *g)
+{
+	g->list_idx = 0;
+	g->style_reset = 0;
+}
+
 static void ctl_setpos(ffui_loader *g)
 {
 	ffui_pos *p = &g->prev_ctl_pos;
@@ -57,29 +67,31 @@ static void ctl_setpos(ffui_loader *g)
 		ffui_setposrect(g->ctl, &g->r, 0);
 	}
 }
-static int ctl_pos(ffparser_schem *ps, void *obj, const int64 *val)
+static int ctl_pos(ffconf_scheme *cs, void *obj, int64 val)
 {
 	ffui_loader *g = obj;
 	int *i = &g->r.x;
-	if (ps->list_idx == 4)
-		return FFPARS_EBADVAL;
-	i[ps->list_idx] = (int)*val;
+	if (g->list_idx == 4)
+		return FFCONF_EBADVAL;
+	i[g->list_idx] = (int)val;
 	g->man_pos = 1;
+	g->list_idx++;
 	return 0;
 }
-static int ctl_size(ffparser_schem *ps, void *obj, const int64 *val)
+static int ctl_size(ffconf_scheme *cs, void *obj, int64 val)
 {
 	ffui_loader *g = obj;
-	if (ps->list_idx == 2)
-		return FFPARS_EBADVAL;
-	if (ps->list_idx == 0)
-		g->r.cx = (int)*val;
+	if (g->list_idx == 2)
+		return FFCONF_EBADVAL;
+	if (g->list_idx == 0)
+		g->r.cx = (int)val;
 	else
-		g->r.cy = (int)*val;
+		g->r.cy = (int)val;
 	g->auto_pos = 1;
+	g->list_idx++;
 	return 0;
 }
-static int ctl_resize(ffparser_schem *ps, void *obj, const ffstr *val)
+static int ctl_resize(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	if (ffstr_eqcz(val, "cx"))
@@ -100,7 +112,19 @@ static void ctl_autoresize(ffui_loader *g)
 	ffui_paned_create(pn, g->wnd);
 	g->resize_flags = 0;
 }
-static int ctl_done(ffparser_schem *ps, void *obj)
+static int ctl_style(ffconf_scheme *cs, void *obj, const ffstr *val)
+{
+	ffui_loader *g = obj;
+	if (ffstr_eqcz(val, "visible"))
+		;
+	else if (ffstr_eqcz(val, "horizontal"))
+		g->style_horizontal = 1;
+	else
+		return FFCONF_EBADVAL;
+
+	return 0;
+}
+static int ctl_done(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 	ctl_setpos(g);
@@ -109,369 +133,23 @@ static int ctl_done(ffparser_schem *ps, void *obj)
 	return 0;
 }
 
-// ICON
-static int ico_size(ffparser_schem *ps, void *obj, const int64 *val);
-static int ico_done(ffparser_schem *ps, void *obj);
-static const ffpars_arg icon_args[] = {
-	{ "filename",	FFPARS_TSTR | FFPARS_FCOPY, FFPARS_DSTOFF(_ffui_ldr_icon_t, fn) },
-	{ "resource",	FFPARS_TINT, FFPARS_DSTOFF(_ffui_ldr_icon_t, resource) },
-	{ "index",	FFPARS_TINT, FFPARS_DSTOFF(_ffui_ldr_icon_t, idx) },
-	{ "size",	FFPARS_TINT | FFPARS_FLIST, FFPARS_DST(&ico_size) },
-	{ NULL,	FFPARS_TCLOSE, FFPARS_DST(&ico_done) },
-};
-
-// MENU ITEM
-static int mi_submenu(ffparser_schem *ps, void *obj, const ffstr *val);
-static int mi_style(ffparser_schem *ps, void *obj, const ffstr *val);
-static int mi_action(ffparser_schem *ps, void *obj, const ffstr *val);
-static int mi_hotkey(ffparser_schem *ps, void *obj, const ffstr *val);
-static int mi_done(ffparser_schem *ps, void *obj);
-static const ffpars_arg menuitem_args[] = {
-	{ "submenu",	FFPARS_TSTR, FFPARS_DST(&mi_submenu) },
-	{ "style",	FFPARS_TSTR | FFPARS_FLIST, FFPARS_DST(&mi_style) },
-	{ "action",	FFPARS_TSTR, FFPARS_DST(&mi_action) },
-	{ "hotkey",	FFPARS_TSTR, FFPARS_DST(&mi_hotkey) },
-	{ NULL,	FFPARS_TCLOSE, FFPARS_DST(&mi_done) },
-};
-
-// MENU
-static int new_menuitem(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-static const ffpars_arg menu_args[] = {
-	{ "item",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_menuitem) },
-};
-static int new_menu(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-static int new_mmenu(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// STATUS BAR
-static int stbar_style(ffparser_schem *ps, void *obj, const ffstr *val);
-static int stbar_parts(ffparser_schem *ps, void *obj, const int64 *val);
-static int stbar_done(ffparser_schem *ps, void *obj);
-static const ffpars_arg stbar_args[] = {
-	{ "style",	FFPARS_TSTR | FFPARS_FLIST, FFPARS_DST(&stbar_style) },
-	{ "parts",	FFPARS_TINT | FFPARS_FSIGN | FFPARS_FLIST, FFPARS_DST(&stbar_parts) },
-	{ NULL,	FFPARS_TCLOSE, FFPARS_DST(&stbar_done) },
-};
-static int new_stbar(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// TRAY
-static int tray_style(ffparser_schem *ps, void *obj, const ffstr *val);
-static int tray_pmenu(ffparser_schem *ps, void *obj, const ffstr *val);
-static int tray_icon(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-static int tray_lclick(ffparser_schem *ps, void *obj, const ffstr *val);
-static int tray_done(ffparser_schem *ps, void *obj);
-static const ffpars_arg tray_args[] = {
-	{ "style",	FFPARS_TSTR | FFPARS_FLIST, FFPARS_DST(&tray_style) },
-	{ "icon",	FFPARS_TOBJ, FFPARS_DST(&tray_icon) },
-	{ "popupmenu",	FFPARS_TSTR, FFPARS_DST(&tray_pmenu) },
-	{ "lclick",	FFPARS_TSTR, FFPARS_DST(&tray_lclick) },
-	{ NULL,	FFPARS_TCLOSE, FFPARS_DST(&tray_done) },
-};
-static int new_tray(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// FONT
-static int font_name(ffparser_schem *ps, void *obj, const ffstr *val);
-static int font_height(ffparser_schem *ps, void *obj, const int64 *val);
-static int font_style(ffparser_schem *ps, void *obj, const ffstr *val);
-static int font_done(ffparser_schem *ps, void *obj);
-static const ffpars_arg font_args[] = {
-	{ "name",	FFPARS_TSTR, FFPARS_DST(&font_name) },
-	{ "height",	FFPARS_TINT, FFPARS_DST(&font_height) },
-	{ "style",	FFPARS_TSTR | FFPARS_FLIST, FFPARS_DST(&font_style) },
-	{ NULL,	FFPARS_TCLOSE, FFPARS_DST(&font_done) },
-};
-
-// LABEL
-static int label_text(ffparser_schem *ps, void *obj, const ffstr *val);
-static int label_font(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-static int ctl_style(ffparser_schem *ps, void *obj, const ffstr *val);
-static int label_color(ffparser_schem *ps, void *obj, const ffstr *val);
-static int label_cursor(ffparser_schem *ps, void *obj, const ffstr *val);
-static int label_action(ffparser_schem *ps, void *obj, const ffstr *val);
-static const ffpars_arg label_args[] = {
-	{ "text",	FFPARS_TSTR, FFPARS_DST(&label_text) },
-	{ "style",	T_STRLIST, _F(ctl_style) },
-	{ "font",	FFPARS_TOBJ, FFPARS_DST(&label_font) },
-	{ "color",	FFPARS_TSTR, FFPARS_DST(&label_color) },
-	{ "cursor",	FFPARS_TSTR, FFPARS_DST(&label_cursor) },
-	{ "position",	T_INTLIST_S, _F(ctl_pos) },
-	{ "size",	T_INTLIST, _F(ctl_size) },
-	{ "resize",	T_STRLIST, _F(ctl_resize) },
-	{ "onclick",	FFPARS_TSTR, FFPARS_DST(&label_action) },
-	{ NULL,	FFPARS_TCLOSE, _F(ctl_done) },
-};
-static int new_label(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// IMAGE
-static int image_icon(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-static int image_action(ffparser_schem *ps, void *obj, const ffstr *val);
-static int image_done(ffparser_schem *ps, void *obj);
-static const ffpars_arg image_args[] = {
-	{ "style",	T_STRLIST, _F(ctl_style) },
-	{ "position",	T_INTLIST_S, _F(ctl_pos) },
-	{ "icon",	FFPARS_TOBJ, FFPARS_DST(&image_icon) },
-	{ "onclick",	FFPARS_TSTR, FFPARS_DST(&image_action) },
-	{ NULL,	FFPARS_TCLOSE, FFPARS_DST(&image_done) },
-};
-static int new_image(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// BUTTON
-static int btn_action(ffparser_schem *ps, void *obj, const ffstr *val);
-static int ctl_tooltip(ffparser_schem *ps, void *obj, const ffstr *val);
-static int btn_done(ffparser_schem *ps, void *obj);
-static const ffpars_arg btn_args[] = {
-	{ "text",	FFPARS_TSTR, FFPARS_DST(&label_text) },
-	{ "style",	T_STRLIST, _F(ctl_style) },
-	{ "icon",	FFPARS_TOBJ, FFPARS_DST(&image_icon) },
-	{ "font",	FFPARS_TOBJ, FFPARS_DST(&label_font) },
-	{ "position",	T_INTLIST_S, _F(ctl_pos) },
-	{ "size",	T_INTLIST, _F(ctl_size) },
-	{ "resize",	T_STRLIST, _F(ctl_resize) },
-	{ "tooltip",	FFPARS_TSTR, FFPARS_DST(&ctl_tooltip) },
-	{ "action",	FFPARS_TSTR, FFPARS_DST(&btn_action) },
-	{ NULL,	FFPARS_TCLOSE, FFPARS_DST(&btn_done) },
-};
-static int new_button(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// CHECKBOX
-static int chbox_style(ffparser_schem *ps, void *obj, const ffstr *val);
-static const ffpars_arg chbox_args[] = {
-	{ "text",	FFPARS_TSTR, FFPARS_DST(&label_text) },
-	{ "style",	FFPARS_TSTR | FFPARS_FLIST, FFPARS_DST(&chbox_style) },
-	{ "font",	FFPARS_TOBJ, FFPARS_DST(&label_font) },
-	{ "position",	T_INTLIST_S, _F(ctl_pos) },
-	{ "size",	T_INTLIST, _F(ctl_size) },
-	{ "resize",	T_STRLIST, _F(ctl_resize) },
-	{ "tooltip",	FFPARS_TSTR, FFPARS_DST(&ctl_tooltip) },
-	{ "action",	FFPARS_TSTR, FFPARS_DST(&btn_action) },
-	{ NULL,	FFPARS_TCLOSE, _F(ctl_done) },
-};
-static int new_checkbox(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// RADIOBUTTON
-static const ffpars_arg radio_args[] = {
-	{ "text",	FFPARS_TSTR, FFPARS_DST(&label_text) },
-	{ "style",	FFPARS_TSTR | FFPARS_FLIST, FFPARS_DST(&chbox_style) },
-	{ "font",	FFPARS_TOBJ, FFPARS_DST(&label_font) },
-	{ "position",	T_INTLIST_S, _F(ctl_pos) },
-	{ "size",	T_INTLIST, _F(ctl_size) },
-	{ "resize",	T_STRLIST, _F(ctl_resize) },
-	{ "tooltip",	FFPARS_TSTR, FFPARS_DST(&ctl_tooltip) },
-	{ "action",	FFPARS_TSTR, FFPARS_DST(&btn_action) },
-	{ NULL,	FFPARS_TCLOSE, _F(ctl_done) },
-};
-static int new_radio(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// EDITBOX
-static int edit_style(ffparser_schem *ps, void *obj, const ffstr *val);
-static int edit_action(ffparser_schem *ps, void *obj, const ffstr *val);
-static const ffpars_arg editbox_args[] = {
-	{ "text",	FFPARS_TSTR, FFPARS_DST(&label_text) },
-	{ "style",	FFPARS_TSTR | FFPARS_FLIST, FFPARS_DST(&edit_style) },
-	{ "font",	FFPARS_TOBJ, FFPARS_DST(&label_font) },
-	{ "position",	T_INTLIST_S, _F(ctl_pos) },
-	{ "size",	T_INTLIST, _F(ctl_size) },
-	{ "resize",	T_STRLIST, _F(ctl_resize) },
-	{ "onchange",	FFPARS_TSTR, FFPARS_DST(&edit_action) },
-	{ NULL,	FFPARS_TCLOSE, _F(ctl_done) },
-};
-static int new_editbox(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// COMBOBOX
-static const ffpars_arg combx_args[] = {
-	{ "text",	FFPARS_TSTR, FFPARS_DST(&label_text) },
-	{ "style",	T_STRLIST, _F(ctl_style) },
-	{ "font",	FFPARS_TOBJ, FFPARS_DST(&label_font) },
-	{ "position",	T_INTLIST_S, _F(ctl_pos) },
-	{ "size",	T_INTLIST, _F(ctl_size) },
-	{ "resize",	T_STRLIST, _F(ctl_resize) },
-	{ NULL,	FFPARS_TCLOSE, _F(ctl_done) },
-};
-static int new_combobox(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// TRACKBAR
-static int trkbar_style(ffparser_schem *ps, void *obj, const ffstr *val);
-static int trkbar_pagesize(ffparser_schem *ps, void *obj, const int64 *val);
-static int trkbar_range(ffparser_schem *ps, void *obj, const int64 *val);
-static int trkbar_val(ffparser_schem *ps, void *obj, const int64 *val);
-static int trkbar_onscroll(ffparser_schem *ps, void *obj, const ffstr *val);
-static int trkbar_onscrolling(ffparser_schem *ps, void *obj, const ffstr *val);
-static const ffpars_arg trkbar_args[] = {
-	{ "style",	FFPARS_TSTR | FFPARS_FLIST, FFPARS_DST(&trkbar_style) },
-	{ "position",	T_INTLIST_S, _F(ctl_pos) },
-	{ "size",	T_INTLIST, _F(ctl_size) },
-	{ "resize",	T_STRLIST, _F(ctl_resize) },
-	{ "range",	FFPARS_TINT, FFPARS_DST(&trkbar_range) },
-	{ "value",	FFPARS_TINT, FFPARS_DST(&trkbar_val) },
-	{ "page_size",	FFPARS_TINT, FFPARS_DST(&trkbar_pagesize) },
-	{ "onscroll",	FFPARS_TSTR, FFPARS_DST(&trkbar_onscroll) },
-	{ "onscrolling",	FFPARS_TSTR, FFPARS_DST(&trkbar_onscrolling) },
-	{ NULL,	FFPARS_TCLOSE, _F(ctl_done) },
-};
-static int new_trkbar(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// PROGRESS BAR
-static const ffpars_arg pgsbar_args[] = {
-	{ "style",	T_STRLIST, _F(ctl_style) },
-	{ "position",	T_INTLIST_S, _F(ctl_pos) },
-	{ NULL,	FFPARS_TCLOSE, _F(ctl_done) },
-};
-static int new_pgsbar(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// TAB
-static int tab_style(ffparser_schem *ps, ffui_loader *g, const ffstr *val);
-static int tab_onchange(ffparser_schem *ps, void *obj, const ffstr *val);
-static const ffpars_arg tab_args[] = {
-	{ "style",	FFPARS_TSTR | FFPARS_FLIST, FFPARS_DST(&tab_style) },
-	{ "position",	T_INTLIST_S, _F(ctl_pos) },
-	{ "size",	T_INTLIST, _F(ctl_size) },
-	{ "resize",	T_STRLIST, _F(ctl_resize) },
-	{ "font",	FFPARS_TOBJ, FFPARS_DST(&label_font) },
-	{ "onchange",	FFPARS_TSTR, FFPARS_DST(&tab_onchange) },
-	{ NULL,	FFPARS_TCLOSE, _F(ctl_done) },
-};
-static int new_tab(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// VIEW
-static int viewcol_width(ffparser_schem *ps, void *obj, const int64 *val);
-static int viewcol_align(ffparser_schem *ps, void *obj, const ffstr *val);
-static int viewcol_order(ffparser_schem *ps, void *obj, const int64 *val);
-static int viewcol_done(ffparser_schem *ps, void *obj);
-static const ffpars_arg viewcol_args[] = {
-	{ "width",	FFPARS_TINT, FFPARS_DST(&viewcol_width) },
-	{ "align",	FFPARS_TSTR, FFPARS_DST(&viewcol_align) },
-	{ "order",	FFPARS_TINT, FFPARS_DST(&viewcol_order) },
-	{ NULL,	FFPARS_TCLOSE, FFPARS_DST(&viewcol_done) },
-};
-static int view_column(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-static int view_style(ffparser_schem *ps, void *obj, const ffstr *val);
-static int view_color(ffparser_schem *ps, void *obj, const ffstr *val);
-static int view_pmenu(ffparser_schem *ps, void *obj, const ffstr *val);
-static int view_chsel(ffparser_schem *ps, void *obj, const ffstr *val);
-static int view_lclick(ffparser_schem *ps, void *obj, const ffstr *val);
-static int view_dblclick(ffparser_schem *ps, void *obj, const ffstr *val);
-static const ffpars_arg view_args[] = {
-	{ "style",	FFPARS_TSTR | FFPARS_FLIST, FFPARS_DST(&view_style) },
-	{ "position",	T_INTLIST_S, _F(ctl_pos) },
-	{ "size",	T_INTLIST, _F(ctl_size) },
-	{ "resize",	T_STRLIST, _F(ctl_resize) },
-	{ "color",	FFPARS_TSTR, FFPARS_DST(&view_color) },
-	{ "bgcolor",	FFPARS_TSTR, FFPARS_DST(&view_color) },
-	{ "popupmenu",	FFPARS_TSTR, FFPARS_DST(&view_pmenu) },
-
-	{ "chsel",	FFPARS_TSTR, FFPARS_DST(&view_chsel) },
-	{ "lclick",	FFPARS_TSTR, FFPARS_DST(&view_lclick) },
-	{ "dblclick",	FFPARS_TSTR, FFPARS_DST(&view_dblclick) },
-	{ "oncheck",	FFPARS_TSTR, FFPARS_DST(&view_lclick) },
-
-	{ "column",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&view_column) },
-	{ NULL,	FFPARS_TCLOSE, _F(ctl_done) },
-};
-static int tview_style(ffparser_schem *ps, void *obj, const ffstr *val);
-static const ffpars_arg tview_args[] = {
-	{ "style",	FFPARS_TSTR | FFPARS_FLIST, FFPARS_DST(&tview_style) },
-	{ "position",	T_INTLIST_S, _F(ctl_pos) },
-	{ "size",	T_INTLIST, _F(ctl_size) },
-	{ "color",	FFPARS_TSTR, FFPARS_DST(&view_color) },
-	{ "bgcolor",	FFPARS_TSTR, FFPARS_DST(&view_color) },
-	{ "popupmenu",	FFPARS_TSTR, FFPARS_DST(&view_pmenu) },
-
-	{ "chsel",	FFPARS_TSTR, FFPARS_DST(&view_chsel) },
-	{ NULL,	FFPARS_TCLOSE, _F(ctl_done) },
-};
-static int new_listview(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-static int new_treeview(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// PANED
-static int pnchild_move(ffparser_schem *ps, void *obj, const ffstr *val);
-static int pnchild_resize(ffparser_schem *ps, void *obj, const ffstr *val);
-static const ffpars_arg paned_child_args[] = {
-	{ "move",	FFPARS_TSTR | FFPARS_FLIST, FFPARS_DST(&pnchild_move) },
-	{ "resize",	FFPARS_TSTR | FFPARS_FLIST, FFPARS_DST(&pnchild_resize) },
-};
-static int paned_child(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-static const ffpars_arg paned_args[] = {
-	{ "child",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&paned_child) },
-};
-static int new_paned(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// DIALOG
-static int dlg_title(ffparser_schem *ps, void *obj, const ffstr *val);
-static int dlg_filter(ffparser_schem *ps, void *obj, const ffstr *val);
-static const ffpars_arg dlg_args[] = {
-	{ "title",	FFPARS_TSTR, FFPARS_DST(&dlg_title) },
-	{ "filter",	FFPARS_TSTR, FFPARS_DST(&dlg_filter) },
-};
-static int new_dlg(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-
-// WINDOW
-static int wnd_title(ffparser_schem *ps, void *obj, const ffstr *val);
-static int wnd_position(ffparser_schem *ps, void *obj, const int64 *v);
-static int wnd_placement(ffparser_schem *ps, void *obj, const int64 *v);
-static int wnd_icon(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-static int wnd_opacity(ffparser_schem *ps, void *obj, const int64 *val);
-static int wnd_borderstick(ffparser_schem *ps, void *obj, const int64 *val);
-static int wnd_style(ffparser_schem *ps, void *obj, const ffstr *val);
-static int wnd_bgcolor(ffparser_schem *ps, void *obj, const ffstr *val);
-static int wnd_onclose(ffparser_schem *ps, void *obj, const ffstr *val);
-static int wnd_parent(ffparser_schem *ps, void *obj, const ffstr *val);
-static int wnd_done(ffparser_schem *ps, void *obj);
-static const ffpars_arg wnd_args[] = {
-	{ "title",	FFPARS_TSTR, FFPARS_DST(&wnd_title) },
-	{ "position",	FFPARS_TINT | FFPARS_FSIGN | FFPARS_FLIST, FFPARS_DST(&wnd_position) },
-	{ "placement",	FFPARS_TINT | FFPARS_FSIGN | FFPARS_FLIST, FFPARS_DST(&wnd_placement) },
-	{ "opacity",	FFPARS_TINT, FFPARS_DST(&wnd_opacity) },
-	{ "borderstick",	FFPARS_TINT | FFPARS_F8BIT, FFPARS_DST(&wnd_borderstick) },
-	{ "icon",	FFPARS_TOBJ, FFPARS_DST(&wnd_icon) },
-	{ "style",	FFPARS_TSTR | FFPARS_FLIST, FFPARS_DST(&wnd_style) },
-	{ "parent",	FFPARS_TSTR, FFPARS_DST(&wnd_parent) },
-	{ "font",	FFPARS_TOBJ, FFPARS_DST(&label_font) },
-	{ "bgcolor",	FFPARS_TSTR, FFPARS_DST(&wnd_bgcolor) },
-	{ "onclose",	FFPARS_TSTR, FFPARS_DST(&wnd_onclose) },
-
-	{ "mainmenu",	FFPARS_TOBJ | FFPARS_FOBJ1, FFPARS_DST(&new_mmenu) },
-	{ "label",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_label) },
-	{ "image",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_image) },
-	{ "editbox",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_editbox) },
-	{ "text",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_editbox) },
-	{ "combobox",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_combobox) },
-	{ "button",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_button) },
-	{ "checkbox",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_checkbox) },
-	{ "radiobutton",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_radio) },
-	{ "trackbar",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_trkbar) },
-	{ "progressbar",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_pgsbar) },
-	{ "tab",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_tab) },
-	{ "listview",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_listview) },
-	{ "treeview",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_treeview) },
-	{ "paned",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_paned) },
-	{ "trayicon",	FFPARS_TOBJ | FFPARS_FOBJ1, FFPARS_DST(&new_tray) },
-	{ "statusbar",	FFPARS_TOBJ | FFPARS_FOBJ1, FFPARS_DST(&new_stbar) },
-	{ NULL,	FFPARS_TCLOSE, FFPARS_DST(&wnd_done) },
-};
-static int new_wnd(ffparser_schem *ps, void *obj, ffpars_ctx *ctx);
-static const ffpars_arg top_args[] = {
-	{ "window",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_wnd) },
-	{ "menu",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_menu) },
-	{ "dialog",	FFPARS_TOBJ | FFPARS_FOBJ1 | FFPARS_FMULTI, FFPARS_DST(&new_dlg) },
-};
-
-
-static int ico_size(ffparser_schem *ps, void *obj, const int64 *val)
+static int ico_size(ffconf_scheme *cs, void *obj, int64 val)
 {
+	ffui_loader *g = obj;
 	_ffui_ldr_icon_t *ico = obj;
 
-	switch (ps->list_idx) {
+	switch (g->list_idx) {
 	case 0:
-		ico->cx = *val; break;
+		ico->cx = val; break;
 	case 1:
-		ico->cy = *val; break;
+		ico->cy = val; break;
 	default:
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	}
+	g->list_idx++;
 	return 0;
 }
-
-static int ico_done(ffparser_schem *ps, void *obj)
+static int ico_done(ffconf_scheme *cs, void *obj)
 {
 	_ffui_ldr_icon_t *ico = obj;
 	char *p, fn[FF_MAXPATH];
@@ -483,15 +161,15 @@ static int ico_done(ffparser_schem *ps, void *obj)
 		ffs_utow(wname, &wname_len, fn, -1);
 		if (0 != ffui_icon_loadres(&ico->icon, wname, ico->cx, ico->cy)) {
 			if (ico->cx == 0)
-				return FFPARS_ESYS;
+				return FFCONF_ESYS;
 			if (0 != ffui_icon_loadres(&ico->icon, wname, 0, 0))
-				return FFPARS_ESYS;
+				return FFCONF_ESYS;
 		}
 		if (ico->load_small
 			&& 0 != ffui_icon_loadres(&ico->icon_small, wname, 16, 16)) {
 
 			if (0 != ffui_icon_loadres(&ico->icon_small, wname, 0, 0))
-				return FFPARS_ESYS;
+				return FFCONF_ESYS;
 		}
 		return 0;
 	}
@@ -503,31 +181,38 @@ static int ico_done(ffparser_schem *ps, void *obj)
 		if (0 != ffui_icon_loadimg(&ico->icon, fn, ico->cx, ico->cy, FFUI_ICON_DPISCALE)) {
 			//Note: winXP can't read PNG-compressed icons.  Load the first icon.
 			if (0 != ffui_icon_load(&ico->icon, fn, 0, 0))
-				return FFPARS_ESYS;
+				return FFCONF_ESYS;
 		}
 	} else {
 		if (0 != ffui_icon_load(&ico->icon, fn, 0, 0))
-			return FFPARS_ESYS;
+			return FFCONF_ESYS;
 		if (ico->load_small && 0 != ffui_icon_load(&ico->icon_small, fn, 0, FFUI_ICON_SMALL))
-			return FFPARS_ESYS;
+			return FFCONF_ESYS;
 	}
 	return 0;
 }
+static const ffconf_arg icon_args[] = {
+	{ "filename",	T_STR, FF_OFF(_ffui_ldr_icon_t, fn) },
+	{ "resource",	T_INT32, FF_OFF(_ffui_ldr_icon_t, resource) },
+	{ "index",	T_INT32, FF_OFF(_ffui_ldr_icon_t, idx) },
+	{ "size",	T_INTLIST, _F(ico_size) },
+	{ NULL,	T_CLOSE, _F(ico_done) },
+};
 
 
-static int mi_submenu(ffparser_schem *ps, void *obj, const ffstr *val)
+static int mi_submenu(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	ffui_menu *sub;
 
 	if (NULL == (sub = g->getctl(g->udata, val)))
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
 	ffui_menu_setsubmenu(&g->menuitem.mi, sub->h);
 	return 0;
 }
 
-static int mi_style(ffparser_schem *ps, void *obj, const ffstr *val)
+static int mi_style(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 
@@ -544,34 +229,34 @@ static int mi_style(ffparser_schem *ps, void *obj, const ffstr *val)
 		ffui_menu_settype(&g->menuitem.mi, FFUI_MENU_RADIOCHECK);
 
 	else
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
 	return 0;
 }
 
-static int mi_action(ffparser_schem *ps, void *obj, const ffstr *val)
+static int mi_action(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	int id;
 
 	if (0 == (id = g->getcmd(g->udata, val)))
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
 	ffui_menu_setcmd(&g->menuitem.mi, id);
 	return 0;
 }
 
-static int mi_hotkey(ffparser_schem *ps, void *obj, const ffstr *val)
+static int mi_hotkey(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	ffui_wnd_hotkey *a;
 	uint hk;
 
 	if (NULL == (a = ffarr_pushgrowT(&g->accels, 4, ffui_wnd_hotkey)))
-		return FFPARS_ESYS;
+		return FFCONF_ESYS;
 
 	if (0 == (hk = ffui_hotkey_parse(val->ptr, val->len)))
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
 	a->hk = hk;
 
@@ -580,7 +265,7 @@ static int mi_hotkey(ffparser_schem *ps, void *obj, const ffstr *val)
 	return 0;
 }
 
-static int mi_done(ffparser_schem *ps, void *obj)
+static int mi_done(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 
@@ -590,55 +275,68 @@ static int mi_done(ffparser_schem *ps, void *obj)
 	}
 
 	if (0 != ffui_menu_append(g->menu, &g->menuitem.mi))
-		return FFPARS_ESYS;
+		return FFCONF_ESYS;
 	return 0;
 }
-
-static int new_menuitem(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static const ffconf_arg menuitem_args[] = {
+	{ "submenu",	T_STR, _F(mi_submenu) },
+	{ "style",	T_STRLIST, _F(mi_style) },
+	{ "action",	T_STR, _F(mi_action) },
+	{ "hotkey",	T_STR, _F(mi_hotkey) },
+	{ NULL,	T_CLOSE, _F(mi_done) },
+};
+static int new_menuitem(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 
 	ffmem_tzero(&g->menuitem);
 
-	if (ffstr_eqcz(&ps->vals[0], "-"))
+	if (ffstr_eqcz(&cs->objval, "-"))
 		ffui_menu_settype(&g->menuitem.mi, FFUI_MENU_SEPARATOR);
 	else
-		ffui_menu_settextstr(&g->menuitem.mi, &ps->vals[0]);
+		ffui_menu_settextstr(&g->menuitem.mi, &cs->objval);
 
-	ffpars_setargs(ctx, g, menuitem_args, FFCNT(menuitem_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, menuitem_args, g);
 	return 0;
 }
 
-static int new_menu(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static const ffconf_arg menu_args[] = {
+	{ "item",	T_OBJMULTI, _F(new_menuitem) },
+	{}
+};
+static int new_menu(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 
-	if (NULL == (g->menu = g->getctl(g->udata, &ps->vals[0])))
-		return FFPARS_EBADVAL;
+	if (NULL == (g->menu = g->getctl(g->udata, &cs->objval)))
+		return FFCONF_EBADVAL;
 
 	if (0 != ffui_menu_create(g->menu))
-		return FFPARS_ESYS;
-	ffpars_setargs(ctx, g, menu_args, FFCNT(menu_args));
+		return FFCONF_ESYS;
+	state_reset(g);
+	ffconf_scheme_addctx(cs, menu_args, g);
 	return 0;
 }
 
-static int new_mmenu(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static int new_mmenu(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
-	if (NULL == (g->menu = ldr_getctl(g, &ps->vals[0])))
-		return FFPARS_EBADVAL;
+	if (NULL == (g->menu = ldr_getctl(g, &cs->objval)))
+		return FFCONF_EBADVAL;
 
 	ffui_menu_createmain(g->menu);
 
 	if (!SetMenu(g->wnd->h, g->menu->h))
-		return FFPARS_ESYS;
+		return FFCONF_ESYS;
 
-	ffpars_setargs(ctx, g, menu_args, FFCNT(menu_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, menu_args, g);
 	return 0;
 }
 
 
-static int trkbar_style(ffparser_schem *ps, void *obj, const ffstr *val)
+static int trkbar_style(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	if (ffstr_eqcz(val, "no_ticks"))
@@ -647,86 +345,97 @@ static int trkbar_style(ffparser_schem *ps, void *obj, const ffstr *val)
 		ffui_styleset(g->trkbar->h, TBS_BOTH);
 	return 0;
 }
-
-static int trkbar_range(ffparser_schem *ps, void *obj, const int64 *val)
+static int trkbar_range(ffconf_scheme *cs, void *obj, int64 val)
 {
 	ffui_loader *g = obj;
-	ffui_trk_setrange(g->trkbar, *val);
+	ffui_trk_setrange(g->trkbar, val);
 	return 0;
 }
-
-static int trkbar_val(ffparser_schem *ps, void *obj, const int64 *val)
+static int trkbar_val(ffconf_scheme *cs, void *obj, int64 val)
 {
 	ffui_loader *g = obj;
-	ffui_trk_set(g->trkbar, *val);
+	ffui_trk_set(g->trkbar, val);
 	return 0;
 }
-
-static int trkbar_pagesize(ffparser_schem *ps, void *obj, const int64 *val)
+static int trkbar_pagesize(ffconf_scheme *cs, void *obj, int64 val)
 {
 	ffui_loader *g = obj;
-	ffui_trk_setpage(g->trkbar, *val);
+	ffui_trk_setpage(g->trkbar, val);
 	return 0;
 }
-
-static int trkbar_onscroll(ffparser_schem *ps, void *obj, const ffstr *val)
+static int trkbar_onscroll(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	if (0 == (g->trkbar->scroll_id = g->getcmd(g->udata, val)))
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	return 0;
 }
-
-static int trkbar_onscrolling(ffparser_schem *ps, void *obj, const ffstr *val)
+static int trkbar_onscrolling(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	if (0 == (g->trkbar->scrolling_id = g->getcmd(g->udata, val)))
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	return 0;
 }
-
-static int new_trkbar(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static const ffconf_arg trkbar_args[] = {
+	{ "style",	T_STRLIST, _F(trkbar_style) },
+	{ "position",	T_INTLIST_S, _F(ctl_pos) },
+	{ "size",	T_INTLIST, _F(ctl_size) },
+	{ "resize",	T_STRLIST, _F(ctl_resize) },
+	{ "range",	T_INT32, _F(trkbar_range) },
+	{ "value",	T_INT32, _F(trkbar_val) },
+	{ "page_size",	T_INT32, _F(trkbar_pagesize) },
+	{ "onscroll",	T_STR, _F(trkbar_onscroll) },
+	{ "onscrolling",	T_STR, _F(trkbar_onscrolling) },
+	{ NULL,	T_CLOSE, _F(ctl_done) },
+};
+static int new_trkbar(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
-	if (NULL == (g->trkbar = ldr_getctl(g, &ps->vals[0])))
-		return FFPARS_EBADVAL;
+	if (NULL == (g->trkbar = ldr_getctl(g, &cs->objval)))
+		return FFCONF_EBADVAL;
 
 	if (0 != ffui_trk_create(g->trkbar, g->wnd))
-		return FFPARS_ESYS;
-	ffpars_setargs(ctx, g, trkbar_args, FFCNT(trkbar_args));
+		return FFCONF_ESYS;
+	state_reset(g);
+	ffconf_scheme_addctx(cs, trkbar_args, g);
 	return 0;
 }
 
 
-static int new_pgsbar(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static const ffconf_arg pgsbar_args[] = {
+	{ "style",	T_STRLIST, _F(ctl_style) },
+	{ "position",	T_INTLIST_S, _F(ctl_pos) },
+	{ NULL,	T_CLOSE, _F(ctl_done) },
+};
+static int new_pgsbar(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
-	if (NULL == (g->ctl = ldr_getctl(g, &ps->vals[0])))
-		return FFPARS_EBADVAL;
+	if (NULL == (g->ctl = ldr_getctl(g, &cs->objval)))
+		return FFCONF_EBADVAL;
 
 	if (0 != ffui_pgs_create(g->ctl, g->wnd))
-		return FFPARS_ESYS;
-	ffpars_setargs(ctx, g, pgsbar_args, FFCNT(pgsbar_args));
+		return FFCONF_ESYS;
+	state_reset(g);
+	ffconf_scheme_addctx(cs, pgsbar_args, g);
 	return 0;
 }
 
 
-static int stbar_style(ffparser_schem *ps, void *obj, const ffstr *val)
+static int stbar_style(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	return 0;
 }
-
-static int stbar_parts(ffparser_schem *ps, void *obj, const int64 *val)
+static int stbar_parts(ffconf_scheme *cs, void *obj, int64 val)
 {
 	ffui_loader *g = obj;
 	int *it = ffarr_push(&g->sb_parts, int);
 	if (it == NULL)
-		return FFPARS_ESYS;
-	*it = (int)*val;
+		return FFCONF_ESYS;
+	*it = (int)val;
 	return 0;
 }
-
-static int stbar_done(ffparser_schem *ps, void *obj)
+static int stbar_done(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 	ffui_stbar_setparts(g->ctl, g->sb_parts.len, g->sb_parts.ptr);
@@ -734,62 +443,64 @@ static int stbar_done(ffparser_schem *ps, void *obj)
 	ffui_show(g->ctl, 1);
 	return 0;
 }
-
-static int new_stbar(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static const ffconf_arg stbar_args[] = {
+	{ "style",	T_STRLIST, _F(stbar_style) },
+	{ "parts",	T_INTLIST_S, _F(stbar_parts) },
+	{ NULL,	T_CLOSE, _F(stbar_done) },
+};
+static int new_stbar(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
-	if (NULL == (g->ctl = ldr_getctl(g, &ps->vals[0])))
-		return FFPARS_EBADVAL;
+	if (NULL == (g->ctl = ldr_getctl(g, &cs->objval)))
+		return FFCONF_EBADVAL;
 
 	if (0 != ffui_stbar_create(g->actl.stbar, g->wnd))
-		return FFPARS_ESYS;
+		return FFCONF_ESYS;
 	ffarr_null(&g->sb_parts);
-	ffpars_setargs(ctx, g, stbar_args, FFCNT(stbar_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, stbar_args, g);
 	return 0;
 }
 
 
-static int tray_style(ffparser_schem *ps, void *obj, const ffstr *val)
+static int tray_style(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	if (ffstr_eqcz(val, "visible"))
 		g->tr.show = 1;
 	else
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	return 0;
 }
-
-static int tray_pmenu(ffparser_schem *ps, void *obj, const ffstr *val)
+static int tray_pmenu(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	ffui_menu *m = g->getctl(g->udata, val);
 	if (m == NULL)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	g->wnd->trayicon->pmenu = m;
 	return 0;
 }
-
-static int tray_icon(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static int tray_icon(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 	ffmem_tzero(&g->ico_ctl);
 	g->ico_ctl.ldr = g;
 	g->ico_ctl.cx = g->ico_ctl.cy = 16;
-	ffpars_setargs(ctx, &g->ico_ctl, icon_args, FFCNT(icon_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, icon_args, g);
 	return 0;
 }
-
-static int tray_lclick(ffparser_schem *ps, void *obj, const ffstr *val)
+static int tray_lclick(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	int id = g->getcmd(g->udata, val);
 	if (id == 0)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	g->wnd->trayicon->lclick_id = id;
 	return 0;
 }
-
-static int tray_done(ffparser_schem *ps, void *obj)
+static int tray_done(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 
@@ -797,40 +508,47 @@ static int tray_done(ffparser_schem *ps, void *obj)
 		ffui_tray_seticon(g->tray, &g->ico_ctl.icon);
 
 	if (g->tr.show && 0 != ffui_tray_show(g->tray, 1))
-		return FFPARS_ESYS;
+		return FFCONF_ESYS;
 
 	return 0;
 }
-
-static int new_tray(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static const ffconf_arg tray_args[] = {
+	{ "style",	T_STRLIST, _F(tray_style) },
+	{ "icon",	T_OBJ, _F(tray_icon) },
+	{ "popupmenu",	T_STR, _F(tray_pmenu) },
+	{ "lclick",	T_STR, _F(tray_lclick) },
+	{ NULL,	T_CLOSE, _F(tray_done) },
+};
+static int new_tray(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 
-	if (NULL == (g->tray = ldr_getctl(g, &ps->vals[0])))
-		return FFPARS_EBADVAL;
+	if (NULL == (g->tray = ldr_getctl(g, &cs->objval)))
+		return FFCONF_EBADVAL;
 
 	ffui_tray_create(g->tray, g->wnd);
 	ffmem_tzero(&g->ico_ctl);
-	ffpars_setargs(ctx, g, tray_args, FFCNT(tray_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, tray_args, g);
 	return 0;
 }
 
 
-static int font_name(ffparser_schem *ps, void *obj, const ffstr *val)
+static int font_name(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	ffui_font_set(&g->fnt, val, 0, 0);
 	return 0;
 }
 
-static int font_height(ffparser_schem *ps, void *obj, const int64 *val)
+static int font_height(ffconf_scheme *cs, void *obj, int64 val)
 {
 	ffui_loader *g = obj;
-	ffui_font_set(&g->fnt, NULL, (int)*val, 0);
+	ffui_font_set(&g->fnt, NULL, (int)val, 0);
 	return 0;
 }
 
-static int font_style(ffparser_schem *ps, void *obj, const ffstr *val)
+static int font_style(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	uint f = 0;
@@ -841,18 +559,18 @@ static int font_style(ffparser_schem *ps, void *obj, const ffstr *val)
 	else if (ffstr_eqcz(val, "underline"))
 		f = FFUI_FONT_UNDERLINE;
 	else
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	ffui_font_set(&g->fnt, NULL, 0, f);
 	return 0;
 }
 
-static int font_done(ffparser_schem *ps, void *obj)
+static int font_done(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 	HFONT f;
 	f = ffui_font_create(&g->fnt);
 	if (f == NULL)
-		return FFPARS_ESYS;
+		return FFCONF_ESYS;
 	if (g->ctl == (void*)g->wnd)
 		g->wnd->font = f;
 	else {
@@ -861,93 +579,114 @@ static int font_done(ffparser_schem *ps, void *obj)
 	}
 	return 0;
 }
+static const ffconf_arg font_args[] = {
+	{ "name",	T_STR, _F(font_name) },
+	{ "height",	T_INT32, _F(font_height) },
+	{ "style",	T_STRLIST, _F(font_style) },
+	{ NULL,	T_CLOSE, _F(font_done) },
+};
 
-static int label_text(ffparser_schem *ps, void *obj, const ffstr *val)
+
+static int label_text(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	ffui_settextstr(g->ctl, val);
 	return 0;
 }
 
-static int label_font(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static int label_font(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 	ffmem_zero(&g->fnt, sizeof(LOGFONT));
 	g->fnt.lf.lfHeight = 15;
 	g->fnt.lf.lfWeight = FW_NORMAL;
-	ffpars_setargs(ctx, g, font_args, FFCNT(font_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, font_args, g);
 	return 0;
 }
 
-static int ctl_style(ffparser_schem *ps, void *obj, const ffstr *val)
-{
-	ffui_loader *g = obj;
-	if (ffstr_eqcz(val, "visible"))
-		;
-	else if (ffstr_eqcz(val, "horizontal"))
-		g->style_horizontal = 1;
-	else
-		return FFPARS_EBADVAL;
-
-	return 0;
-}
-
-static int label_color(ffparser_schem *ps, void *obj, const ffstr *val)
+static int label_color(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	uint clr;
 
 	if ((uint)-1 == (clr = ffpic_color3(val->ptr, val->len, ffpic_clr_a)))
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
 	g->actl.lbl->color = clr;
 	return 0;
 }
 
-static int label_cursor(ffparser_schem *ps, void *obj, const ffstr *val)
+static int label_cursor(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 
 	if (ffstr_ieqcz(val, "hand"))
 		ffui_lbl_setcursor(g->actl.lbl, FFUI_CUR_HAND);
 	else
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	return 0;
 }
 
-static int label_action(ffparser_schem *ps, void *obj, const ffstr *val)
+static int label_action(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	int id = g->getcmd(g->udata, val);
 	if (id == 0)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
 	g->actl.lbl->click_id = id;
 	return 0;
 }
+static const ffconf_arg label_args[] = {
+	{ "text",	T_STR, _F(label_text) },
+	{ "style",	T_STRLIST, _F(ctl_style) },
+	{ "font",	T_OBJ, _F(label_font) },
+	{ "color",	T_STR, _F(label_color) },
+	{ "cursor",	T_STR, _F(label_cursor) },
+	{ "position",	T_INTLIST_S, _F(ctl_pos) },
+	{ "size",	T_INTLIST, _F(ctl_size) },
+	{ "resize",	T_STRLIST, _F(ctl_resize) },
+	{ "onclick",	T_STR, _F(label_action) },
+	{ NULL,	T_CLOSE, _F(ctl_done) },
+};
+static int new_label(ffconf_scheme *cs, void *obj)
+{
+	ffui_loader *g = obj;
+
+	g->ctl = ldr_getctl(g, &cs->objval);
+	if (g->ctl == NULL)
+		return FFCONF_EBADVAL;
+
+	if (0 != ffui_lbl_create(g->actl.lbl, g->wnd))
+		return FFCONF_ESYS;
+
+	state_reset(g);
+	ffconf_scheme_addctx(cs, label_args, g);
+	return 0;
+}
 
 
-static int image_icon(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static int image_icon(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 	ffmem_tzero(&g->ico_ctl);
 	g->ico_ctl.ldr = g;
-	ffpars_setargs(ctx, &g->ico_ctl, icon_args, FFCNT(icon_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, icon_args, &g->ico_ctl);
 	return 0;
 }
-
-static int image_action(ffparser_schem *ps, void *obj, const ffstr *val)
+static int image_action(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	int id = g->getcmd(g->udata, val);
 	if (id == 0)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
 	g->actl.img->click_id = id;
 	return 0;
 }
-
-static int image_done(ffparser_schem *ps, void *obj)
+static int image_done(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 	if (g->ico_ctl.icon.h != NULL)
@@ -955,49 +694,128 @@ static int image_done(ffparser_schem *ps, void *obj)
 	ffui_show(g->ctl, 1);
 	return 0;
 }
+static const ffconf_arg image_args[] = {
+	{ "style",	T_STRLIST, _F(ctl_style) },
+	{ "position",	T_INTLIST_S, _F(ctl_pos) },
+	{ "icon",	T_OBJ, _F(image_icon) },
+	{ "onclick",	T_STR, _F(image_action) },
+	{ NULL,	T_CLOSE, _F(image_done) },
+};
+static int new_image(ffconf_scheme *cs, void *obj)
+{
+	ffui_loader *g = obj;
+
+	g->ctl = ldr_getctl(g, &cs->objval);
+	if (g->ctl == NULL)
+		return FFCONF_EBADVAL;
+
+	if (0 != ffui_img_create(g->actl.img, g->wnd))
+		return FFCONF_ESYS;
+
+	state_reset(g);
+	ffconf_scheme_addctx(cs, image_args, g);
+	return 0;
+}
 
 
-static int ctl_tooltip(ffparser_schem *ps, void *obj, const ffstr *val)
+static int ctl_tooltip(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	ffui_wnd_tooltip(g->wnd, g->ctl, val->ptr, val->len);
 	return 0;
 }
 
-static int btn_done(ffparser_schem *ps, void *obj)
+static int btn_action(ffconf_scheme *cs, void *obj, const ffstr *val)
+{
+	ffui_loader *g = obj;
+	int id = g->getcmd(g->udata, val);
+	if (id == 0)
+		return FFCONF_EBADVAL;
+
+	g->btn->action_id = id;
+	return 0;
+}
+static int btn_done(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 	if (g->ico_ctl.icon.h != NULL)
 		ffui_btn_seticon(g->btn, &g->ico_ctl.icon);
 
-	ctl_done(ps, g);
+	ctl_done(cs, g);
 	return 0;
 }
-
-static int btn_action(ffparser_schem *ps, void *obj, const ffstr *val)
+static const ffconf_arg btn_args[] = {
+	{ "text",	T_STR, _F(label_text) },
+	{ "style",	T_STRLIST, _F(ctl_style) },
+	{ "icon",	T_OBJ, _F(image_icon) },
+	{ "font",	T_OBJ, _F(label_font) },
+	{ "position",	T_INTLIST_S, _F(ctl_pos) },
+	{ "size",	T_INTLIST, _F(ctl_size) },
+	{ "resize",	T_STRLIST, _F(ctl_resize) },
+	{ "tooltip",	T_STR, _F(ctl_tooltip) },
+	{ "action",	T_STR, _F(btn_action) },
+	{ NULL,	T_CLOSE, _F(btn_done) },
+};
+static int new_button(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
-	int id = g->getcmd(g->udata, val);
-	if (id == 0)
-		return FFPARS_EBADVAL;
+	void *ctl;
 
-	g->btn->action_id = id;
+	ctl = ldr_getctl(g, &cs->objval);
+	if (ctl == NULL)
+		return FFCONF_EBADVAL;
+	g->ctl = ctl;
+
+	if (0 != ffui_btn_create(g->ctl, g->wnd))
+		return FFCONF_ESYS;
+
+	ffmem_tzero(&g->ico_ctl);
+	state_reset(g);
+	ffconf_scheme_addctx(cs, btn_args, g);
 	return 0;
 }
 
 
-static int chbox_style(ffparser_schem *ps, void *obj, const ffstr *val)
+static int chbox_style(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	if (ffstr_eqcz(val, "checked"))
 		ffui_chbox_check(g->btn, 1);
 	else
-		return ctl_style(ps, obj, val);
+		return ctl_style(cs, obj, val);
+	return 0;
+}
+static const ffconf_arg chbox_args[] = {
+	{ "text",	T_STR, _F(label_text) },
+	{ "style",	T_STRLIST, _F(chbox_style) },
+	{ "font",	T_OBJ, _F(label_font) },
+	{ "position",	T_INTLIST_S, _F(ctl_pos) },
+	{ "size",	T_INTLIST, _F(ctl_size) },
+	{ "resize",	T_STRLIST, _F(ctl_resize) },
+	{ "tooltip",	T_STR, _F(ctl_tooltip) },
+	{ "action",	T_STR, _F(btn_action) },
+	{ NULL,	T_CLOSE, _F(ctl_done) },
+};
+static int new_checkbox(ffconf_scheme *cs, void *obj)
+{
+	ffui_loader *g = obj;
+	void *ctl;
+
+	ctl = ldr_getctl(g, &cs->objval);
+	if (ctl == NULL)
+		return FFCONF_EBADVAL;
+	g->ctl = ctl;
+
+	if (0 != ffui_chbox_create(g->ctl, g->wnd))
+		return FFCONF_ESYS;
+
+	state_reset(g);
+	ffconf_scheme_addctx(cs, chbox_args, g);
 	return 0;
 }
 
 
-static int edit_style(ffparser_schem *ps, void *obj, const ffstr *val)
+static int edit_style(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	if (ffstr_eqcz(val, "password"))
@@ -1007,172 +825,148 @@ static int edit_style(ffparser_schem *ps, void *obj, const ffstr *val)
 		ffui_edit_readonly(g->ctl, 1);
 
 	else
-		return ctl_style(ps, obj, val);
+		return ctl_style(cs, obj, val);
 
 	return 0;
 }
-
-static int edit_action(ffparser_schem *ps, void *obj, const ffstr *val)
+static int edit_action(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	int id = g->getcmd(g->udata, val);
 	if (id == 0)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
 	g->ed->change_id = id;
 	return 0;
 }
-
-
-static int new_label(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
-{
-	ffui_loader *g = obj;
-
-	g->ctl = ldr_getctl(g, &ps->vals[0]);
-	if (g->ctl == NULL)
-		return FFPARS_EBADVAL;
-
-	if (0 != ffui_lbl_create(g->actl.lbl, g->wnd))
-		return FFPARS_ESYS;
-
-	ffpars_setargs(ctx, g, label_args, FFCNT(label_args));
-	return 0;
-}
-
-static int new_image(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
-{
-	ffui_loader *g = obj;
-
-	g->ctl = ldr_getctl(g, &ps->vals[0]);
-	if (g->ctl == NULL)
-		return FFPARS_EBADVAL;
-
-	if (0 != ffui_img_create(g->actl.img, g->wnd))
-		return FFPARS_ESYS;
-
-	ffpars_setargs(ctx, g, image_args, FFCNT(image_args));
-	return 0;
-}
-
-static int new_editbox(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static const ffconf_arg editbox_args[] = {
+	{ "text",	T_STR, _F(label_text) },
+	{ "style",	T_STRLIST, _F(edit_style) },
+	{ "font",	T_OBJ, _F(label_font) },
+	{ "position",	T_INTLIST_S, _F(ctl_pos) },
+	{ "size",	T_INTLIST, _F(ctl_size) },
+	{ "resize",	T_STRLIST, _F(ctl_resize) },
+	{ "onchange",	T_STR, _F(edit_action) },
+	{ NULL,	T_CLOSE, _F(ctl_done) },
+};
+static int new_editbox(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 	int r;
 
-	g->ctl = ldr_getctl(g, &ps->vals[0]);
+	g->ctl = ldr_getctl(g, &cs->objval);
 	if (g->ctl == NULL)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
-	if (!ffsz_cmp(ps->curarg->name, "text"))
+	if (ffsz_eq(cs->arg->name, "text"))
 		r = ffui_text_create(g->ctl, g->wnd);
 	else
 		r = ffui_edit_create(g->ctl, g->wnd);
 	if (r != 0)
-		return FFPARS_ESYS;
+		return FFCONF_ESYS;
 
-	ffpars_setargs(ctx, g, editbox_args, FFCNT(editbox_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, editbox_args, g);
 	return 0;
 }
 
-static int new_combobox(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+
+static const ffconf_arg combx_args[] = {
+	{ "text",	T_STR, _F(label_text) },
+	{ "style",	T_STRLIST, _F(ctl_style) },
+	{ "font",	T_OBJ, _F(label_font) },
+	{ "position",	T_INTLIST_S, _F(ctl_pos) },
+	{ "size",	T_INTLIST, _F(ctl_size) },
+	{ "resize",	T_STRLIST, _F(ctl_resize) },
+	{ NULL,	T_CLOSE, _F(ctl_done) },
+};
+
+static int new_combobox(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 
-	g->ctl = ldr_getctl(g, &ps->vals[0]);
+	g->ctl = ldr_getctl(g, &cs->objval);
 	if (g->ctl == NULL)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
 	if (0 != ffui_combx_create(g->ctl, g->wnd))
-		return FFPARS_ESYS;
+		return FFCONF_ESYS;
 
-	ffpars_setargs(ctx, g, combx_args, FFCNT(combx_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, combx_args, g);
 	return 0;
 }
 
-static int new_button(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+
+static const ffconf_arg radio_args[] = {
+	{ "text",	T_STR, _F(label_text) },
+	{ "style",	T_STRLIST, _F(chbox_style) },
+	{ "font",	T_OBJ, _F(label_font) },
+	{ "position",	T_INTLIST_S, _F(ctl_pos) },
+	{ "size",	T_INTLIST, _F(ctl_size) },
+	{ "resize",	T_STRLIST, _F(ctl_resize) },
+	{ "tooltip",	T_STR, _F(ctl_tooltip) },
+	{ "action",	T_STR, _F(btn_action) },
+	{ NULL,	T_CLOSE, _F(ctl_done) },
+};
+static int new_radio(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 	void *ctl;
 
-	ctl = ldr_getctl(g, &ps->vals[0]);
+	ctl = ldr_getctl(g, &cs->objval);
 	if (ctl == NULL)
-		return FFPARS_EBADVAL;
-	g->ctl = ctl;
-
-	if (0 != ffui_btn_create(g->ctl, g->wnd))
-		return FFPARS_ESYS;
-
-	ffmem_tzero(&g->ico_ctl);
-	ffpars_setargs(ctx, g, btn_args, FFCNT(btn_args));
-	return 0;
-}
-
-static int new_checkbox(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
-{
-	ffui_loader *g = obj;
-	void *ctl;
-
-	ctl = ldr_getctl(g, &ps->vals[0]);
-	if (ctl == NULL)
-		return FFPARS_EBADVAL;
-	g->ctl = ctl;
-
-	if (0 != ffui_chbox_create(g->ctl, g->wnd))
-		return FFPARS_ESYS;
-
-	ffpars_setargs(ctx, g, chbox_args, FFCNT(chbox_args));
-	return 0;
-}
-
-static int new_radio(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
-{
-	ffui_loader *g = obj;
-	void *ctl;
-
-	ctl = ldr_getctl(g, &ps->vals[0]);
-	if (ctl == NULL)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	g->ctl = ctl;
 
 	if (0 != ffui_radio_create(g->ctl, g->wnd))
-		return FFPARS_ESYS;
+		return FFCONF_ESYS;
 
-	ffpars_setargs(ctx, g, radio_args, FFCNT(radio_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, radio_args, g);
 	return 0;
 }
 
 
-static int new_tab(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
-{
-	ffui_loader *g = obj;
-	if (NULL == (g->actl.tab = ldr_getctl(g, &ps->vals[0])))
-		return FFPARS_EBADVAL;
-
-	if (0 != ffui_tab_create(g->actl.tab, g->wnd))
-		return FFPARS_ESYS;
-	ffpars_setargs(ctx, g, tab_args, FFCNT(tab_args));
-	return 0;
-}
-
-static int tab_style(ffparser_schem *ps, ffui_loader *g, const ffstr *val)
+static int tab_style(ffconf_scheme *cs, ffui_loader *g, const ffstr *val)
 {
 	if (ffstr_eqcz(val, "multiline"))
 		ffui_styleset(g->actl.tab->h, TCS_MULTILINE);
 	else if (ffstr_eqcz(val, "fixed-width"))
 		ffui_styleset(g->actl.tab->h, TCS_FIXEDWIDTH);
 	else
-		return ctl_style(ps, g, val);
+		return ctl_style(cs, g, val);
 	return 0;
 }
-
-static int tab_onchange(ffparser_schem *ps, void *obj, const ffstr *val)
+static int tab_onchange(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	int id = g->getcmd(g->udata, val);
 	if (id == 0)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
 	g->actl.tab->chsel_id = id;
+	return 0;
+}
+static const ffconf_arg tab_args[] = {
+	{ "style",	T_STRLIST, _F(tab_style) },
+	{ "position",	T_INTLIST_S, _F(ctl_pos) },
+	{ "size",	T_INTLIST, _F(ctl_size) },
+	{ "resize",	T_STRLIST, _F(ctl_resize) },
+	{ "font",	T_OBJ, _F(label_font) },
+	{ "onchange",	T_STR, _F(tab_onchange) },
+	{ NULL,	T_CLOSE, _F(ctl_done) },
+};
+static int new_tab(ffconf_scheme *cs, void *obj)
+{
+	ffui_loader *g = obj;
+	if (NULL == (g->actl.tab = ldr_getctl(g, &cs->objval)))
+		return FFCONF_EBADVAL;
+
+	if (0 != ffui_tab_create(g->actl.tab, g->wnd))
+		return FFCONF_ESYS;
+	state_reset(g);
+	ffconf_scheme_addctx(cs, tab_args, g);
 	return 0;
 }
 
@@ -1190,7 +984,6 @@ enum {
 	VIEW_STYLE_TRACK_SELECT,
 	VIEW_STYLE_VISIBLE,
 };
-
 static const char *const view_styles[] = {
 	"checkboxes",
 	"edit_labels",
@@ -1205,11 +998,12 @@ static const char *const view_styles[] = {
 	"visible",
 };
 
-static int view_style(ffparser_schem *ps, void *obj, const ffstr *val)
+static int view_style(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 
-	if (((ffconf*)ffpars_schem_backend(ps))->type == FFCONF_TVAL) {
+	if (!g->style_reset) {
+		g->style_reset = 1;
 		// reset to default
 		ListView_SetExtendedListViewStyleEx(g->ctl->h, LVS_EX_GRIDLINES | LVS_EX_CHECKBOXES, 0);
 	}
@@ -1244,12 +1038,12 @@ static int view_style(ffparser_schem *ps, void *obj, const ffstr *val)
 		break;
 
 	default:
-		return FFPARS_EVALUKN;
+		return FFCONF_EBADVAL;
 	}
 	return 0;
 }
 
-static int tview_style(ffparser_schem *ps, void *obj, const ffstr *val)
+static int tview_style(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 
@@ -1290,80 +1084,80 @@ static int tview_style(ffparser_schem *ps, void *obj, const ffstr *val)
 		break;
 
 	default:
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	}
 	return 0;
 }
 
-static int view_color(ffparser_schem *ps, void *obj, const ffstr *val)
+static int view_color(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	uint clr;
 
 	if ((uint)-1 == (clr = ffpic_color(val->ptr, val->len)))
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
-	if (!ffsz_cmp(ps->curarg->name, "color"))
+	if (!ffsz_cmp(cs->arg->name, "color"))
 		ffui_view_clr_text(g->vi, clr);
 	else
 		ffui_view_clr_bg(g->vi, clr);
 	return 0;
 }
 
-static int view_pmenu(ffparser_schem *ps, void *obj, const ffstr *val)
+static int view_pmenu(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	ffui_menu *m = g->getctl(g->udata, val);
 	if (m == NULL)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	g->vi->pmenu = m;
 	return 0;
 }
 
-static int view_chsel(ffparser_schem *ps, void *obj, const ffstr *val)
+static int view_chsel(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	int id = g->getcmd(g->udata, val);
 	if (id == 0)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
 	g->vi->chsel_id = id;
 	return 0;
 }
 
-static int view_lclick(ffparser_schem *ps, void *obj, const ffstr *val)
+static int view_lclick(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	int id = g->getcmd(g->udata, val);
 	if (id == 0)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
-	if (!ffsz_cmp(ps->curarg->name, "lclick"))
+	if (!ffsz_cmp(cs->arg->name, "lclick"))
 		g->vi->lclick_id = id;
 	else
 		g->vi->check_id = id;
 	return 0;
 }
 
-static int view_dblclick(ffparser_schem *ps, void *obj, const ffstr *val)
+static int view_dblclick(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	int id = g->getcmd(g->udata, val);
 	if (id == 0)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	g->vi->dblclick_id = id;
 	return 0;
 }
 
 
-static int viewcol_width(ffparser_schem *ps, void *obj, const int64 *val)
+static int viewcol_width(ffconf_scheme *cs, void *obj, int64 val)
 {
 	ffui_loader *g = obj;
-	ffui_viewcol_setwidth(&g->vicol, *val);
+	ffui_viewcol_setwidth(&g->vicol, val);
 	return 0;
 }
 
-static int viewcol_align(ffparser_schem *ps, void *obj, const ffstr *val)
+static int viewcol_align(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	uint a;
@@ -1374,68 +1168,106 @@ static int viewcol_align(ffparser_schem *ps, void *obj, const ffstr *val)
 	else if (ffstr_eqcz(val, "center"))
 		a = HDF_CENTER;
 	else
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	ffui_viewcol_setalign(&g->vicol, a);
 	return 0;
 }
 
-static int viewcol_order(ffparser_schem *ps, void *obj, const int64 *val)
+static int viewcol_order(ffconf_scheme *cs, void *obj, int64 val)
 {
 	ffui_loader *g = obj;
-	ffui_viewcol_setorder(&g->vicol, *val);
+	ffui_viewcol_setorder(&g->vicol, val);
 	return 0;
 }
 
-static int viewcol_done(ffparser_schem *ps, void *obj)
+static int viewcol_done(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 	ffui_view_inscol(g->vi, ffui_view_ncols(g->vi), &g->vicol);
 	return 0;
 }
+static const ffconf_arg viewcol_args[] = {
+	{ "width",	T_INT32, _F(viewcol_width) },
+	{ "align",	T_STR, _F(viewcol_align) },
+	{ "order",	T_INT32, _F(viewcol_order) },
+	{ NULL,	T_CLOSE, _F(viewcol_done) },
+};
 
-static int view_column(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static int view_column(ffconf_scheme *cs, void *obj)
 {
-	ffstr *name = &ps->vals[0];
+	ffstr *name = ffconf_scheme_objval(cs);
 	ffui_loader *g = obj;
 	ffui_viewcol_reset(&g->vicol);
 	ffui_viewcol_setwidth(&g->vicol, 100);
 	ffui_viewcol_settext(&g->vicol, name->ptr, name->len);
-	ffpars_setargs(ctx, g, viewcol_args, FFCNT(viewcol_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, viewcol_args, g);
 	return 0;
 }
 
-static int new_listview(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static const ffconf_arg view_args[] = {
+	{ "style",	T_STRLIST, _F(view_style) },
+	{ "position",	T_INTLIST_S, _F(ctl_pos) },
+	{ "size",	T_INTLIST, _F(ctl_size) },
+	{ "resize",	T_STRLIST, _F(ctl_resize) },
+	{ "color",	T_STR, _F(view_color) },
+	{ "bgcolor",	T_STR, _F(view_color) },
+	{ "popupmenu",	T_STR, _F(view_pmenu) },
+
+	{ "chsel",	T_STR, _F(view_chsel) },
+	{ "lclick",	T_STR, _F(view_lclick) },
+	{ "dblclick",	T_STR, _F(view_dblclick) },
+	{ "oncheck",	T_STR, _F(view_lclick) },
+
+	{ "column",	T_OBJMULTI, _F(view_column) },
+	{ NULL,	T_CLOSE, _F(ctl_done) },
+};
+
+static int new_listview(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 
-	g->ctl = ldr_getctl(g, &ps->vals[0]);
+	g->ctl = ldr_getctl(g, &cs->objval);
 	if (g->ctl == NULL)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
 	if (0 != ffui_view_create(g->vi, g->wnd))
-		return FFPARS_ESYS;
+		return FFCONF_ESYS;
 
-	ffpars_setargs(ctx, g, view_args, FFCNT(view_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, view_args, g);
 	return 0;
 }
 
-static int new_treeview(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static const ffconf_arg tview_args[] = {
+	{ "style",	T_STRLIST, _F(tview_style) },
+	{ "position",	T_INTLIST_S, _F(ctl_pos) },
+	{ "size",	T_INTLIST, _F(ctl_size) },
+	{ "color",	T_STR, _F(view_color) },
+	{ "bgcolor",	T_STR, _F(view_color) },
+	{ "popupmenu",	T_STR, _F(view_pmenu) },
+
+	{ "chsel",	T_STR, _F(view_chsel) },
+	{ NULL,	T_CLOSE, _F(ctl_done) },
+};
+static int new_treeview(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 
-	g->ctl = ldr_getctl(g, &ps->vals[0]);
+	g->ctl = ldr_getctl(g, &cs->objval);
 	if (g->ctl == NULL)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
 	if (0 != ffui_tree_create(g->ctl, g->wnd))
-		return FFPARS_ESYS;
+		return FFCONF_ESYS;
 
-	ffpars_setargs(ctx, g, tview_args, FFCNT(tview_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, tview_args, g);
 	return 0;
 }
 
 
-static int pnchild_resize(ffparser_schem *ps, void *obj, const ffstr *val)
+static int pnchild_resize(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	if (ffstr_eqcz(val, "cx"))
@@ -1443,11 +1275,11 @@ static int pnchild_resize(ffparser_schem *ps, void *obj, const ffstr *val)
 	else if (ffstr_eqcz(val, "cy"))
 		g->paned->items[g->ir - 1].cy = 1;
 	else
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	return 0;
 }
 
-static int pnchild_move(ffparser_schem *ps, void *obj, const ffstr *val)
+static int pnchild_move(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	if (ffstr_eqcz(val, "x"))
@@ -1455,143 +1287,162 @@ static int pnchild_move(ffparser_schem *ps, void *obj, const ffstr *val)
 	else if (ffstr_eqcz(val, "y"))
 		g->paned->items[g->ir - 1].y = 1;
 	else
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	return 0;
 }
+static const ffconf_arg paned_child_args[] = {
+	{ "move",	T_STRLIST, _F(pnchild_move) },
+	{ "resize",	T_STRLIST, _F(pnchild_resize) },
+	{}
+};
 
-static int paned_child(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static int paned_child(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 	void *ctl;
 
 	if (g->ir == FFCNT(g->paned->items))
-		return FFPARS_EBIGVAL;
+		return FFCONF_EBADVAL;
 
-	ctl = ldr_getctl(g, &ps->vals[0]);
+	ctl = ldr_getctl(g, &cs->objval);
 	if (ctl == NULL)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 
 	g->paned->items[g->ir++].it = ctl;
-	ffpars_setargs(ctx, g, paned_child_args, FFCNT(paned_child_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, paned_child_args, g);
 	return 0;
 }
+static const ffconf_arg paned_args[] = {
+	{ "child",	T_OBJMULTI, _F(paned_child) },
+	{}
+};
 
-static int new_paned(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static int new_paned(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 	void *ctl;
 
-	ctl = ldr_getctl(g, &ps->vals[0]);
+	ctl = ldr_getctl(g, &cs->objval);
 	if (ctl == NULL)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	ffmem_zero(ctl, sizeof(ffui_paned));
 	g->paned = ctl;
 	ffui_paned_create(ctl, g->wnd);
 
 	g->ir = 0;
-	ffpars_setargs(ctx, g, paned_args, FFCNT(paned_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, paned_args, g);
 	return 0;
 }
 
 
 // DIALOG
-static int dlg_title(ffparser_schem *ps, void *obj, const ffstr *val)
+static int dlg_title(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	ffui_dlg_title(g->dlg, val->ptr, val->len);
 	return 0;
 }
 
-static int dlg_filter(ffparser_schem *ps, void *obj, const ffstr *val)
+static int dlg_filter(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	ffui_dlg_filter(g->dlg, val->ptr, val->len);
 	return 0;
 }
-
-static int new_dlg(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static const ffconf_arg dlg_args[] = {
+	{ "title",	T_STR, _F(dlg_title) },
+	{ "filter",	T_STR, _F(dlg_filter) },
+	{}
+};
+static int new_dlg(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
-	if (NULL == (g->dlg = g->getctl(g->udata, &ps->vals[0])))
-		return FFPARS_EBADVAL;
+	if (NULL == (g->dlg = g->getctl(g->udata, &cs->objval)))
+		return FFCONF_EBADVAL;
 	ffui_dlg_init(g->dlg);
-	ffpars_setargs(ctx, g, dlg_args, FFCNT(dlg_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, dlg_args, g);
 	return 0;
 }
 
 
-static int wnd_title(ffparser_schem *ps, void *obj, const ffstr *val)
+static int wnd_title(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	ffui_settextstr(g->wnd, val);
 	return 0;
 }
 
-static int wnd_position(ffparser_schem *ps, void *obj, const int64 *v)
+static int wnd_position(ffconf_scheme *cs, void *obj, int64 v)
 {
 	ffui_loader *g = obj;
 	int *i = &g->r.x;
-	if (ps->list_idx == 4)
-		return FFPARS_EBIGVAL;
-	i[ps->list_idx] = (int)*v;
-	if (ps->list_idx == 3) {
+	if (g->list_idx == 4)
+		return FFCONF_EBADVAL;
+	i[g->list_idx] = (int)v;
+	if (g->list_idx == 3) {
 		ffui_pos_limit(&g->r, &g->screen);
 		ffui_setposrect(g->wnd, &g->r, 0);
 	}
+	g->list_idx++;
 	return 0;
 }
 
-static int wnd_placement(ffparser_schem *ps, void *obj, const int64 *v)
+static int wnd_placement(ffconf_scheme *cs, void *obj, int64 v)
 {
 	ffui_loader *g = obj;
+	int li = g->list_idx++;
 
-	if (ps->list_idx == 0) {
-		g->showcmd = *v;
+	if (li == 0) {
+		g->showcmd = v;
 		return 0;
-	} else if (ps->list_idx == 5)
-		return FFPARS_EBIGVAL;
+	} else if (li == 5)
+		return FFCONF_EBADVAL;
 
 	int *i = &g->r.x;
-	i[ps->list_idx - 1] = (int)*v;
+	i[li - 1] = (int)v;
 
-	if (ps->list_idx == 4) {
+	if (li == 4) {
 		ffui_pos_limit(&g->r, &g->screen);
 		ffui_wnd_setplacement(g->wnd, g->showcmd, &g->r);
 	}
 	return 0;
 }
 
-static int wnd_icon(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+static int wnd_icon(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 	ffmem_zero(&g->ico, sizeof(_ffui_ldr_icon_t));
 	g->ico.ldr = g;
 	g->ico.load_small = 1;
-	ffpars_setargs(ctx, &g->ico, icon_args, FFCNT(icon_args));
+	state_reset(g);
+	ffconf_scheme_addctx(cs, icon_args, &g->ico);
 	return 0;
 }
 
 /** 'percent': Opacity value, 10-100 */
-static int wnd_opacity(ffparser_schem *ps, void *obj, const int64 *val)
+static int wnd_opacity(ffconf_scheme *cs, void *obj, int64 val)
 {
 	ffui_loader *g = obj;
-	uint percent = (uint)*val;
+	uint percent = (uint)val;
 
 	if (!(percent >= 10 && percent <= 100))
-		return FFPARS_EBIGVAL;
+		return FFCONF_EBADVAL;
 
 	ffui_wnd_opacity(g->wnd, percent);
 	return 0;
 }
 
-static int wnd_borderstick(ffparser_schem *ps, void *obj, const int64 *val)
+static int wnd_borderstick(ffconf_scheme *cs, void *obj, int64 val)
 {
 	ffui_loader *g = obj;
-	g->wnd->bordstick = (byte)*val;
+	g->wnd->bordstick = (byte)val;
 	return 0;
 }
 
-static int wnd_style(ffparser_schem *ps, void *obj, const ffstr *val)
+static int wnd_style(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 
@@ -1602,11 +1453,11 @@ static int wnd_style(ffparser_schem *ps, void *obj, const ffstr *val)
 		g->vis = 1;
 
 	else
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	return 0;
 }
 
-static int wnd_bgcolor(ffparser_schem *ps, void *obj, const ffstr *val)
+static int wnd_bgcolor(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	uint clr;
@@ -1614,30 +1465,30 @@ static int wnd_bgcolor(ffparser_schem *ps, void *obj, const ffstr *val)
 	if (ffstr_eqz(val, "null"))
 		clr = GetSysColor(COLOR_BTNFACE);
 	else if ((uint)-1 == (clr = ffpic_color(val->ptr, val->len)))
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	ffui_wnd_bgcolor(g->wnd, clr);
 	return 0;
 }
 
-static int wnd_onclose(ffparser_schem *ps, void *obj, const ffstr *val)
+static int wnd_onclose(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	if (0 == (g->wnd->onclose_id = g->getcmd(g->udata, val)))
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	return 0;
 }
 
-static int wnd_parent(ffparser_schem *ps, void *obj, const ffstr *val)
+static int wnd_parent(ffconf_scheme *cs, void *obj, const ffstr *val)
 {
 	ffui_loader *g = obj;
 	ffui_ctl *parent = g->getctl(g->udata, val);
 	if (parent == NULL)
-		return FFPARS_EBADVAL;
+		return FFCONF_EBADVAL;
 	(void)SetWindowLongPtr(g->wnd->h, GWLP_HWNDPARENT, (LONG_PTR)parent->h);
 	return 0;
 }
 
-static int wnd_done(ffparser_schem *ps, void *obj)
+static int wnd_done(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 
@@ -1664,7 +1515,7 @@ static int wnd_done(ffparser_schem *ps, void *obj)
 		int r = ffui_wnd_hotkeys(g->wnd, (void*)g->accels.ptr, g->accels.len);
 		g->accels.len = 0;
 		if (r != 0)
-			return FFPARS_ESYS;
+			return FFCONF_ESYS;
 	}
 
 	if (g->vis) {
@@ -1676,31 +1527,68 @@ static int wnd_done(ffparser_schem *ps, void *obj)
 	ffmem_safefree0(g->wndname);
 	return 0;
 }
+static const ffconf_arg wnd_args[] = {
+	{ "title",	T_STR, _F(wnd_title) },
+	{ "position",	T_INTLIST_S, _F(wnd_position) },
+	{ "placement",	T_INTLIST_S, _F(wnd_placement) },
+	{ "opacity",	T_INT32, _F(wnd_opacity) },
+	{ "borderstick",	FFCONF_TINT8, _F(wnd_borderstick) },
+	{ "icon",	T_OBJ, _F(wnd_icon) },
+	{ "style",	T_STRLIST, _F(wnd_style) },
+	{ "parent",	T_STR, _F(wnd_parent) },
+	{ "font",	T_OBJ, _F(label_font) },
+	{ "bgcolor",	T_STR, _F(wnd_bgcolor) },
+	{ "onclose",	T_STR, _F(wnd_onclose) },
 
-static int new_wnd(ffparser_schem *ps, void *obj, ffpars_ctx *ctx)
+	{ "mainmenu",	T_OBJ, _F(new_mmenu) },
+	{ "label",	T_OBJMULTI, _F(new_label) },
+	{ "image",	T_OBJMULTI, _F(new_image) },
+	{ "editbox",	T_OBJMULTI, _F(new_editbox) },
+	{ "text",	T_OBJMULTI, _F(new_editbox) },
+	{ "combobox",	T_OBJMULTI, _F(new_combobox) },
+	{ "button",	T_OBJMULTI, _F(new_button) },
+	{ "checkbox",	T_OBJMULTI, _F(new_checkbox) },
+	{ "radiobutton",	T_OBJMULTI, _F(new_radio) },
+	{ "trackbar",	T_OBJMULTI, _F(new_trkbar) },
+	{ "progressbar",	T_OBJMULTI, _F(new_pgsbar) },
+	{ "tab",	T_OBJMULTI, _F(new_tab) },
+	{ "listview",	T_OBJMULTI, _F(new_listview) },
+	{ "treeview",	T_OBJMULTI, _F(new_treeview) },
+	{ "paned",	T_OBJMULTI, _F(new_paned) },
+	{ "trayicon",	T_OBJ, _F(new_tray) },
+	{ "statusbar",	T_OBJ, _F(new_stbar) },
+	{ NULL,	T_CLOSE, _F(wnd_done) },
+};
+static int new_wnd(ffconf_scheme *cs, void *obj)
 {
 	ffui_loader *g = obj;
 	ffui_wnd *wnd;
 
-	if (NULL == (wnd = g->getctl(g->udata, &ps->vals[0])))
-		return FFPARS_EBADVAL;
+	if (NULL == (wnd = g->getctl(g->udata, &cs->objval)))
+		return FFCONF_EBADVAL;
 	ffmem_zero((byte*)g + FFOFF(ffui_loader, wnd), sizeof(ffui_loader) - FFOFF(ffui_loader, wnd));
 	g->wnd = wnd;
-	if (NULL == (g->wndname = ffsz_alcopy(ps->vals[0].ptr, ps->vals[0].len)))
-		return FFPARS_ESYS;
+	if (NULL == (g->wndname = ffsz_alcopy(cs->objval.ptr, cs->objval.len)))
+		return FFCONF_ESYS;
 	g->ctl = (ffui_ctl*)wnd;
 	if (0 != ffui_wnd_create(wnd))
-		return FFPARS_ESYS;
-
-	ffpars_setargs(ctx, g, wnd_args, FFCNT(wnd_args));
+		return FFCONF_ESYS;
+	state_reset(g);
+	ffconf_scheme_addctx(cs, wnd_args, g);
 	return 0;
 }
+
+static const ffconf_arg top_args[] = {
+	{ "window",	T_OBJMULTI, _F(new_wnd) },
+	{ "menu",	T_OBJMULTI, _F(new_menu) },
+	{ "dialog",	T_OBJMULTI, _F(new_dlg) },
+	{}
+};
 
 
 void ffui_ldr_init(ffui_loader *g)
 {
 	ffmem_tzero(g);
-	ffpars_setargs(&g->ctx, g, top_args, FFCNT(top_args));
 	ffui_screenarea(&g->screen);
 }
 
@@ -1732,78 +1620,24 @@ static void* ldr_getctl(ffui_loader *g, const ffstr *name)
 
 int ffui_ldr_loadfile(ffui_loader *g, const char *fn)
 {
-	int r;
-	ffstr s;
-	char *buf = NULL;
-	size_t n;
-	fffd f = FF_BADFD;
-	ffconf p;
-	ffparser_schem ps;
-
-	r = ffconf_scheminit(&ps, &p, &g->ctx);
-	if (r != 0)
-		goto done;
-
-	if (FF_BADFD == (f = fffile_open(fn, O_RDONLY))) {
-		r = FFPARS_ESYS;
-		goto done;
-	}
-
-	if (NULL == (buf = ffmem_alloc(4096))) {
-		r = FFPARS_ESYS;
-		goto done;
-	}
-
 	ffpath_split2(fn, ffsz_len(fn), &g->path, NULL);
 	g->path.len += FFSLEN("/");
 
-	for (;;) {
-		n = fffile_read(f, buf, 4096);
-		if (n == (size_t)-1) {
-			r = FFPARS_ESYS;
-			goto done;
-		} else if (n == 0)
-			break;
-		ffstr_set(&s, buf, n);
-
-		while (s.len != 0) {
-			n = s.len;
-			r = ffconf_parse(&p, s.ptr, &n);
-			ffstr_shift(&s, n);
-			r = ffconf_schemrun(&ps);
-
-			if (ffpars_iserr(r))
-				goto done;
-		}
+	ffstr errstr = {};
+	int r = ffconf_parse_file(top_args, g, fn, 0, &errstr);
+	if (r != 0) {
+		ffmem_free(g->errstr);
+		g->errstr = ffsz_dupstr(&errstr);
 	}
 
-	r = ffconf_schemfin(&ps);
-
-done:
-	if (ffpars_iserr(r)) {
-		ffstr3 s = {0};
-		n = ffstr_catfmt(&s, "%u:%u near \"%S\" : %s%Z"
-			, p.line, p.ch, &p.val, ffpars_errstr(r));
-		if (r == FFPARS_ESYS) {
-			if (s.len != 0)
-				s.len--;
-			ffstr_catfmt(&s, " : %E%Z", fferr_last());
-		}
-		g->errstr = (s.len != 0) ? s.ptr : "";
-	}
-
-	ffconf_parseclose(&p);
-	ffpars_schemfree(&ps);
-	ffmem_safefree(buf);
-	if (f != FF_BADFD)
-		fffile_close(f);
+	ffstr_free(&errstr);
 	return r;
 }
 
 
 void ffui_ldrw_fin(ffui_loaderw *ldr)
 {
-	ffconf_wdestroy(&ldr->confw);
+	ffconfw_close(&ldr->confw);
 }
 
 void ffui_ldr_setv(ffui_loaderw *ldr, const char *const *names, size_t nn, uint flags)
@@ -1814,8 +1648,6 @@ void ffui_ldr_setv(ffui_loaderw *ldr, const char *const *names, size_t nn, uint 
 	ffui_ctl *c;
 	ffstr settname, ctlname, val;
 	ffarr s = {0};
-
-	ldr->confw.flags |= FFCONF_GROW;
 
 	for (i = 0;  i != nn;  i++) {
 		ffstr_setz(&settname, names[i]);
@@ -1858,8 +1690,8 @@ void ffui_ldr_setv(ffui_loaderw *ldr, const char *const *names, size_t nn, uint 
 
 		case FFUI_UID_TRACKBAR:
 			if (ffstr_eqcz(&val, "value")) {
-				ffconf_writez(&ldr->confw, settname.ptr, FFCONF_TKEY | FFCONF_ASIS);
-				ffconf_writeint(&ldr->confw, ffui_trk_val(c), 0, FFCONF_TVAL);
+				ffconfw_addkeyz(&ldr->confw, settname.ptr);
+				ffconfw_addint(&ldr->confw, ffui_trk_val(c));
 			}
 			break;
 
@@ -1877,12 +1709,13 @@ void ffui_ldr_setv(ffui_loaderw *ldr, const char *const *names, size_t nn, uint 
 
 void ffui_ldr_set(ffui_loaderw *ldr, const char *name, const char *val, size_t len, uint flags)
 {
-	ldr->confw.flags |= FFCONF_GROW;
-	ffconf_writez(&ldr->confw, name, FFCONF_TKEY | FFCONF_ASIS);
+	ffconfw_addkeyz(&ldr->confw, name);
+	ffstr s;
+	ffstr_set(&s, val, len);
 	if (flags & FFUI_LDR_FSTR) {
-		ffconf_write(&ldr->confw, val, len, FFCONF_TVAL);
+		ffconfw_addstr(&ldr->confw, &s);
 	} else
-		ffconf_write(&ldr->confw, val, len, FFCONF_TVAL | FFCONF_ASIS);
+		ffconfw_add(&ldr->confw, FFCONF_TSTR | FFCONFW_FLINE | FFCONFW_FDONTESCAPE, &s);
 }
 
 int ffui_ldr_write(ffui_loaderw *ldr, const char *fn)
@@ -1890,9 +1723,9 @@ int ffui_ldr_write(ffui_loaderw *ldr, const char *fn)
 	ffstr buf;
 	if (!ldr->fin) {
 		ldr->fin = 1;
-		ffconf_writefin(&ldr->confw);
+		ffconfw_fin(&ldr->confw);
 	}
-	ffconf_output(&ldr->confw, &buf);
+	ffconfw_output(&ldr->confw, &buf);
 	return fffile_writeall(fn, buf.ptr, buf.len, 0);
 }
 
@@ -1936,58 +1769,62 @@ void ffui_ldr_loadconf(ffui_loader *g, const char *fn)
 
 		g->ctl = g->getctl(g->udata, &name);
 		if (g->ctl != NULL) {
-			ffconf p;
-			ffparser_schem ps;
-			ffpars_ctx ctx = {0};
+			ffconf conf = {};
+			ffconf_init(&conf);
+			ffconf_scheme cs = {};
+			cs.parser = &conf;
+			state_reset(g);
 
 			switch (g->ctl->uid) {
 			case FFUI_UID_WINDOW:
 				g->wnd = (void*)g->ctl;
-				ffpars_setargs(&ctx, g, wnd_args, FFCNT(wnd_args));
+				ffconf_scheme_addctx(&cs, wnd_args, g);
 				break;
 
 			case FFUI_UID_EDITBOX:
-				ffpars_setargs(&ctx, g, editbox_args, FFCNT(editbox_args));
+				ffconf_scheme_addctx(&cs, editbox_args, g);
 				break;
 
 			case FFUI_UID_LABEL:
-				ffpars_setargs(&ctx, g, label_args, FFCNT(label_args));
+				ffconf_scheme_addctx(&cs, label_args, g);
 				break;
 
 			case FFUI_UID_COMBOBOX:
-				ffpars_setargs(&ctx, g, combx_args, FFCNT(combx_args));
+				ffconf_scheme_addctx(&cs, combx_args, g);
 				break;
 
 			case FFUI_UID_TRACKBAR:
-				ffpars_setargs(&ctx, g, trkbar_args, FFCNT(trkbar_args));
+				ffconf_scheme_addctx(&cs, trkbar_args, g);
 				break;
 
 			case FFUI_UID_LISTVIEW:
-				ffpars_setargs(&ctx, g, view_args, FFCNT(view_args));
+				ffconf_scheme_addctx(&cs, view_args, g);
 				break;
 
 			default:
 				continue;
 			}
-			ffconf_scheminit(&ps, &p, &ctx);
 
 			ffbool lf = 0;
-			while (val.len != 0) {
-				n = val.len;
-				int r = ffconf_parse(&p, val.ptr, &n);
-				ffstr_shift(&val, n);
-				r = ffconf_schemrun(&ps);
-				if (ffpars_iserr(r))
-					break;
-				if (r == FFPARS_MORE && !lf) {
+			for (;;) {
+				int r = ffconf_parse(&conf, &val);
+				if (r < 0)
+					goto done;
+				else if (r == FFCONF_RMORE && !lf) {
 					ffstr_setcz(&val, "\n");
 					lf = 1;
+					continue;
 				}
+
+				r = ffconf_scheme_process(&cs, r);
+				if (r < 0)
+					goto done;
+				if (lf)
+					break;
 			}
 
-			ffconf_schemfin(&ps);
-			ffconf_parseclose(&p);
-			ffpars_schemfree(&ps);
+			ffconf_scheme_destroy(&cs);
+			ffconf_fin(&conf);
 		}
 	}
 
