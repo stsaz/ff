@@ -3,7 +3,6 @@ Copyright (c) 2013 Simon Zolin
 */
 
 #include <FF/audio/mpeg.h>
-#include <FF/aformat/mp3.h>
 
 
 const char* ffmpg_errstr(ffmpg *m)
@@ -37,6 +36,18 @@ void ffmpg_seek(ffmpg *m, uint64 sample)
 	mpg123_decode(m->m123, (void*)-1, (size_t)-1, NULL); //reset bufferred data
 	m->seek = sample + m->delay_start;
 	m->delay_dec = 0;
+}
+
+static inline ffuint mpeg1_samples(const void *h)
+{
+	const ffbyte *b = (ffbyte*)h;
+	static const ffbyte frsamps[2][4] = {
+		{ 0, 1152/8, 1152/8, 384/8 }, // MPEG-1
+		{ 0, 576/8, 1152/8, 384/8 }, // MPEG-2
+	};
+	int v2 = (b[1] & 0x18) != 0x18;
+	int l = (b[1] & 0x06) >> 1;
+	return frsamps[v2][l] * 8;
 }
 
 int ffmpg_decode(ffmpg *m)

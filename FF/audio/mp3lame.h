@@ -5,6 +5,7 @@ Copyright (c) 2015 Simon Zolin
 #pragma once
 
 #include <FF/audio/mpeg.h>
+#include <FF/array.h>
 
 #include <mp3lame/lame-ff.h>
 

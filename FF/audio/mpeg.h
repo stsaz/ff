@@ -10,6 +10,20 @@ Copyright (c) 2013 Simon Zolin
 
 #include <mpg123/mpg123-ff.h>
 
+enum FFMPG_E {
+	FFMPG_EOK,
+	FFMPG_ESYS,
+	FFMPG_EFMT,
+};
+
+enum FFMPG_R {
+	FFMPG_RWARN = -2
+	, FFMPG_RERR
+	, FFMPG_RHDR
+	, FFMPG_RDATA
+	, FFMPG_RMORE
+	, FFMPG_RDONE
+};
 
 /** MPEG decoder. */
 typedef struct ffmpg {
