@@ -282,7 +282,7 @@ int ffpsarg_schemrun(ffparser_schem *ps)
 
 	if (ps->flags & _FFPARS_SCALONE) {
 		ps->flags &= ~_FFPARS_SCALONE;
-		if (p->ret == FFPARS_KEY) {
+		if (p->ret == FFPARS_KEY || p->ret == FFPARS_CLOSE) {
 			ps->flags &= ~FFPARS_SCHAVKEY;
 			if (!ffpars_arg_isfunc(ps->curarg))
 				return FFPARS_ECONF;
