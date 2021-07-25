@@ -96,7 +96,7 @@ FEATURES
 * Data - `FF/data/`
 	* JSON reader/writer  - `FF/data/json.h`
 	* XML reader  - `FF/data/xml.h`
-	* configuration file reader/writer  - `FF/data/conf.h`
+	* configuration file reader/writer  - `FF/data/conf2*.h`
 	* command-line arguments parser  - `FF/data/cmdarg.h`, `FF/data/cmdarg-scheme.h`
 	* deserialization of structured data using a predefined scheme  - `FF/data/parse.h`
 	* UTF-8 decode/encode  - `FF/data/utf8.h`
@@ -123,7 +123,6 @@ FEATURES
 	* .aac (read) - `FF/aformat/aac-adts.h`
 	* .flac (read/write) - `FF/aformat/flac.h`
 	* FLAC/.ogg (read) - `FF/aformat/flac.h`
-	* .mp3 (read/write) - `FF/aformat/mp3.h`
 	* .mpc (read) - `FF/aformat/mpc.h`
 
 * Multimedia meta - `FF/mtags/`

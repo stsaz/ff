@@ -10,7 +10,6 @@ Copyright (c) 2018 Simon Zolin
 #include <FF/gui/winapi.h>
 #endif
 
-#include <FF/aformat/aac-adts.h>
 #include <FF/aformat/flac.h>
 #include <FF/aformat/mp3.h>
 #include <FF/aformat/mpc.h>
