@@ -193,8 +193,10 @@ err:
 	return NULL;
 }
 
-void fffileread_free(fffileread *f)
+void fffileread_free_ex(fffileread *f, ffuint flags)
 {
+	if (flags & 1)
+		f->fd = FFFILE_NULL;
 	FF_SAFECLOSE(f->fd, FF_BADFD, fffile_close);
 
 	ffbool ret = 0;

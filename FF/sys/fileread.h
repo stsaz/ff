@@ -44,8 +44,14 @@ Return object pointer.
 */
 FF_EXTN fffileread* fffileread_create(const char *fn, fffileread_conf *conf);
 
-/** Release object (it may be freed later after the async task is complete). */
-FF_EXTN void fffileread_free(fffileread *f);
+/**
+flags: 1:don't close fd
+Release object (it may be freed later after the async task is complete). */
+FF_EXTN void fffileread_free_ex(fffileread *f, ffuint flags);
+static inline void fffileread_free(fffileread *f)
+{
+	fffileread_free_ex(f, 0);
+}
 
 FF_EXTN fffd fffileread_fd(fffileread *f);
 
