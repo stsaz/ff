@@ -12,9 +12,6 @@ Copyright (c) 2020 Simon Zolin
 #include <shlguid.h>
 
 
-static size_t arrzz_copy(ffsyschar *dst, size_t cap, const char *const *arr, size_t n);
-
-
 int ffui_createlink(const char *target, const char *linkname)
 {
 	HRESULT r;
@@ -67,34 +64,6 @@ int ffui_shellexec(const char *filename, uint flags)
 	return 0;
 }
 
-int ffui_fop_del(const char *const *names, size_t cnt, uint flags)
-{
-	int r;
-	size_t cap = 0, i;
-	SHFILEOPSTRUCT fs, *f = &fs;
-
-	ffmem_tzero(f);
-
-	if (flags & FFUI_FOP_ALLOWUNDO) {
-		for (i = 0;  i != cnt;  i++) {
-			if (!ffpath_abs(names[i], ffsz_len(names[i])))
-				return -1; //protect against permanently deleting files with non-absolute names
-		}
-	}
-
-	cap = arrzz_copy(NULL, 0, names, cnt);
-	if (NULL == (f->pFrom = ffq_alloc(cap)))
-		return -1;
-	arrzz_copy((void*)f->pFrom, cap, names, cnt);
-
-	f->wFunc = FO_DELETE;
-	f->fFlags = flags;
-	r = SHFileOperation(f);
-
-	ffmem_free((void*)f->pFrom);
-	return r;
-}
-
 int ffui_clipbd_set(const char *s, size_t len)
 {
 	HGLOBAL glob;
@@ -125,28 +94,6 @@ fail:
 	return -1;
 }
 
-/** Prepare double-null terminated string array from char*[].
-@dst: "el1 \0 el2 \0 \0" */
-static size_t arrzz_copy(ffsyschar *dst, size_t cap, const char *const *arr, size_t n)
-{
-	ffsyschar *pw = dst;
-	size_t i;
-
-	if (dst == NULL) {
-		cap = 0;
-		for (i = 0;  i != n;  i++) {
-			cap += ff_utow(NULL, 0, arr[i], -1, 0);
-		}
-		return cap + 1;
-	}
-
-	for (i = 0;  i != n;  i++) {
-		pw += ff_utow(pw, cap - (pw - dst), arr[i], -1, 0);
-	}
-	*pw = '\0';
-	return 0;
-}
-
 int ffui_clipbd_setfile(const char *const *names, size_t cnt)
 {
 	HGLOBAL glob;
@@ -156,7 +103,7 @@ int ffui_clipbd_setfile(const char *const *names, size_t cnt)
 		ffsyschar names[0];
 	} *s;
 
-	cap = arrzz_copy(NULL, 0, names, cnt);
+	cap = _ff_arrzz_copy(NULL, 0, names, cnt);
 	if (NULL == (glob = GlobalAlloc(GMEM_SHARE | GMEM_MOVEABLE, sizeof(DROPFILES) + cap * sizeof(ffsyschar))))
 		return -1;
 
@@ -164,7 +111,7 @@ int ffui_clipbd_setfile(const char *const *names, size_t cnt)
 	ffmem_tzero(&s->df);
 	s->df.pFiles = sizeof(DROPFILES);
 	s->df.fWide = 1;
-	arrzz_copy(s->names, cap, names, cnt);
+	_ff_arrzz_copy(s->names, cap, names, cnt);
 	GlobalUnlock(glob);
 
 	if (!OpenClipboard(NULL))

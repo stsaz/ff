@@ -817,6 +817,13 @@ static gboolean _ffui_send_handler(gpointer data)
 	case FFUI_STBAR_SETTEXT:
 		ffui_stbar_settextz((ffui_ctl*)c->ctl, c->udata);
 		break;
+
+	case FFUI_CLIP_SETTEXT: {
+		GtkClipboard *clip = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+		ffstr *s = c->udata;
+		gtk_clipboard_set_text(clip, s->ptr, s->len);
+		break;
+	}
 	}
 
 	if (c->ref != 0) {

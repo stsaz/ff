@@ -5,6 +5,7 @@ Copyright (c) 2014 Simon Zolin
 #pragma once
 
 #include <FF/array.h>
+#include <FFOS/path.h>
 
 #include <commctrl.h>
 #include <uxtheme.h>
@@ -384,13 +385,56 @@ FF_EXTN int ffui_createlink(const char *target, const char *linkname);
 FF_EXTN int ffui_shellexec(const char *filename, uint flags);
 
 
+/** Prepare double-null terminated string array from char*[]
+dst: "el1 \0 el2 \0 \0" */
+static ffsize _ff_arrzz_copy(ffsyschar *dst, ffsize cap, const char *const *arr, ffsize n)
+{
+	if (dst == NULL) {
+		cap = 0;
+		for (ffsize i = 0;  i != n;  i++) {
+			cap += ffsz_utow(NULL, 0, arr[i]);
+		}
+		return cap + 1;
+	}
+
+	ffsize k = 0;
+	for (ffsize i = 0;  i != n;  i++) {
+		k += ffsz_utow(&dst[k], cap - k, arr[i]);
+	}
+	dst[k] = '\0';
+	return 0;
+}
+
 enum FFUI_FOP_F {
 	FFUI_FOP_ALLOWUNDO = FOF_ALLOWUNDO,
 };
 
-/** Delete a file.
-@flags: enum FFUI_FOP_F */
-FF_EXTN int ffui_fop_del(const char *const *names, size_t cnt, uint flags);
+/** Delete a file
+flags: enum FFUI_FOP_F */
+static inline int ffui_fop_del(const char *const *names, ffsize cnt, ffuint flags)
+{
+	if (flags & FFUI_FOP_ALLOWUNDO) {
+		for (ffsize i = 0;  i != cnt;  i++) {
+			if (!ffpath_abs(names[i], ffsz_len(names[i]))) {
+				fferr_set(ERROR_INVALID_PARAMETER);
+				return -1; //protect against permanently deleting files with non-absolute names
+			}
+		}
+	}
+
+	SHFILEOPSTRUCT fs = {};
+	ffsize cap = _ff_arrzz_copy(NULL, 0, names, cnt);
+	if (NULL == (fs.pFrom = ffq_alloc(cap)))
+		return -1;
+	_ff_arrzz_copy((void*)fs.pFrom, cap, names, cnt);
+
+	fs.wFunc = FO_DELETE;
+	fs.fFlags = flags;
+	int r = SHFileOperation(&fs);
+
+	ffmem_free((void*)fs.pFrom);
+	return r;
+}
 
 
 // EDITBOX
@@ -511,6 +555,9 @@ FF_EXTN int ffui_chbox_create(ffui_ctl *c, ffui_wnd *parent);
 
 #define ffui_chbox_check(c, val)  ffui_ctl_send(c, BM_SETCHECK, val, 0)
 #define ffui_chbox_checked(c)  ffui_ctl_send(c, BM_GETCHECK, 0, 0)
+
+#define ffui_checkbox_check(c, val)  ffui_ctl_send(c, BM_SETCHECK, val, 0)
+#define ffui_checkbox_checked(c)  ffui_ctl_send(c, BM_GETCHECK, 0, 0)
 
 
 // RADIOBUTTON
@@ -1029,9 +1076,26 @@ static FFINL void ffui_view_setcol(ffui_view *v, int i, ffui_viewcol *vc)
 	ffui_viewcol_reset(vc);
 }
 
+/** Set column width */
+static inline void ffui_view_setcol_width(ffui_view *v, int i, uint width)
+{
+	ffui_viewcol vc = {};
+	ffui_viewcol_setwidth(&vc, width);
+	ffui_view_setcol(v, i, &vc);
+}
+
 static FFINL void ffui_view_col(ffui_view *v, int i, ffui_viewcol *vc)
 {
 	(void)ListView_GetColumn(v->h, i, &vc->col);
+}
+
+/** Get column width */
+static inline uint ffui_view_col_width(ffui_view *v, int i)
+{
+	ffui_viewcol vc = {};
+	vc.col.mask = LVCF_WIDTH;
+	ListView_GetColumn(v->h, i, &vc.col);
+	return ffui_viewcol_width(&vc);
 }
 
 

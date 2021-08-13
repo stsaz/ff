@@ -846,6 +846,7 @@ static const ffconf_arg editbox_args[] = {
 	{ "position",	T_INTLIST_S, _F(ctl_pos) },
 	{ "size",	T_INTLIST, _F(ctl_size) },
 	{ "resize",	T_STRLIST, _F(ctl_resize) },
+	{ "tooltip",	T_STR, _F(ctl_tooltip) },
 	{ "onchange",	T_STR, _F(edit_action) },
 	{ NULL,	T_CLOSE, _F(ctl_done) },
 };

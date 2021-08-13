@@ -2,6 +2,8 @@
 Copyright (c) 2015 Simon Zolin
 */
 
+// obsolete
+
 #pragma once
 
 #include <FFOS/dir.h>

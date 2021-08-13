@@ -9,9 +9,14 @@ Copyright (c) 2020 Simon Zolin
 #include <FFOS/dir.h>
 #include <FFOS/timer.h>
 
+#define dbglog(f, fmt, ...) \
+do { \
+	if (f->conf.log_debug) \
+		fw_log(f, FFFILEWRITE_LOG_DBG, fmt, __VA_ARGS__); \
+} while (0)
 
-#define dbglog(f, fmt, ...)  fw_log(f, FFFILEWRITE_LOG_DBG, fmt, __VA_ARGS__)
 #define syserrlog(f, fmt, ...)  fw_log(f, _FFFILEWRITE_LOG_SYSERR, "%s: " fmt, (f)->name, __VA_ARGS__)
+
 
 static void fw_writedone(fffilewrite *f, uint64 off, size_t written);
 
@@ -68,8 +73,6 @@ void fffilewrite_setconf(fffilewrite_conf *conf)
 static void fw_log(fffilewrite *f, uint level, const char *fmt, ...)
 {
 	if (f->conf.log == NULL)
-		return;
-	if (level == FFFILEWRITE_LOG_DBG && !f->conf.log_debug)
 		return;
 
 	char buf[4096];

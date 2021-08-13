@@ -38,15 +38,18 @@ struct fffileread {
 	struct fffileread_stat stat;
 };
 
-#define dbglog(f, fmt, ...)  fr_log(f, FFFILEREAD_LOG_DBG, fmt, __VA_ARGS__)
+#define dbglog(f, fmt, ...) \
+do { \
+	if (f->conf.log_debug) \
+		fr_log(f, FFFILEREAD_LOG_DBG, fmt, __VA_ARGS__); \
+} while (0)
+
 #define errlog(f, fmt, ...)  fr_log(f, FFFILEREAD_LOG_ERR, fmt, __VA_ARGS__)
 #define syserrlog(f, fmt, ...)  fr_log(f, _FFFILEREAD_LOG_SYSERR, fmt, __VA_ARGS__)
 
 static void fr_log(fffileread *f, uint level, const char *fmt, ...)
 {
 	if (f->conf.log == NULL)
-		return;
-	if (level == FFFILEREAD_LOG_DBG && !f->conf.log_debug)
 		return;
 
 	char buf[4096];

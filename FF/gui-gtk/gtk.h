@@ -340,7 +340,23 @@ static inline void ffui_viewcol_settext(ffui_viewcol *vc, const char *text, size
 
 FF_EXTN void ffui_view_inscol(ffui_view *v, int pos, ffui_viewcol *vc);
 FF_EXTN void ffui_view_setcol(ffui_view *v, int pos, ffui_viewcol *vc);
+
+/** Set column width */
+static inline void ffui_view_setcol_width(ffui_view *v, int pos, uint width)
+{
+	ffui_viewcol vc = { .width = width };
+	ffui_view_setcol(v, pos, &vc);
+}
+
 FF_EXTN void ffui_view_col(ffui_view *v, int pos, ffui_viewcol *vc);
+
+/** Get column width */
+static inline uint ffui_view_col_width(ffui_view *v, int pos)
+{
+	ffui_viewcol vc = {};
+	ffui_view_col(v, pos, &vc);
+	return vc.width;
+}
 
 /** Get the number of columns. */
 #define ffui_view_ncols(v) \
@@ -648,6 +664,7 @@ FF_EXTN void ffui_thd_post(ffui_handler func, void *udata, uint flags);
 enum FFUI_MSG {
 	FFUI_QUITLOOP,
 	FFUI_CHECKBOX_SETTEXTZ,
+	FFUI_CLIP_SETTEXT,
 	FFUI_EDIT_GETTEXT,
 	FFUI_LBL_SETTEXT,
 	FFUI_STBAR_SETTEXT,
@@ -684,6 +701,7 @@ FF_EXTN size_t ffui_send(void *ctl, uint id, void *udata);
 #define ffui_send_view_rm(ctl, it)  ffui_send(ctl, FFUI_VIEW_RM, it)
 #define ffui_post_view_clear(ctl)  ffui_post(ctl, FFUI_VIEW_CLEAR, NULL)
 #define ffui_post_view_scroll_set(ctl, vert_pos)  ffui_post(ctl, FFUI_VIEW_SCROLLSET, (void*)(size_t)vert_pos)
+#define ffui_clipboard_settextstr(str)  ffui_send(NULL, FFUI_CLIP_SETTEXT, (void*)str)
 
 /** See ffui_view_getsel().
 Return ffarr4* (uint[]) */
