@@ -35,6 +35,12 @@ static FFINL void ffmpc_inputblock(ffmpc *m, const char *block, size_t len, uint
 	m->cursample = audio_pos;
 }
 
+enum {
+	FFMPC_RMORE,
+	FFMPC_RDATA,
+	FFMPC_RERR,
+};
+
 /** Decode 1 frame. */
 FF_EXTN int ffmpc_decode(ffmpc *m);
 

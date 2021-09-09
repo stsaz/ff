@@ -2,7 +2,6 @@
 Copyright (c) 2017 Simon Zolin
 */
 
-#include <FF/aformat/mpc.h>
 #include <FF/audio/musepack.h>
 #include <FFOS/error.h>
 
