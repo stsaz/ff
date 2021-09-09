@@ -158,6 +158,22 @@ static inline void ffconf_scheme_skipctx(ffconf_scheme *cs)
 	ffconf_scheme_addctx(cs, (void*)-1, (void*)-1);
 }
 
+/** Get bits to shift by size suffix K, M, G, T */
+static ffuint _ffconf_sizesfx(int suffix)
+{
+	switch (suffix | 0x20) {
+	case 'k':
+		return 10;
+	case 'm':
+		return 20;
+	case 'g':
+		return 30;
+	case 't':
+		return 40;
+	}
+	return 0;
+}
+
 #define _FFCONF_ERR(c, msg) \
 	(c)->errmsg = msg,  -FFCONF_ESCHEME
 
@@ -299,7 +315,7 @@ static inline int ffconf_scheme_process(ffconf_scheme *cs, int r)
 			ffuint shift = 0;
 
 			if (t == _FFCONF_TSIZE && s.len >= 2) {
-				shift = ffchar_sizesfx(*ffslice_lastT(&s, char));
+				shift = _ffconf_sizesfx(*ffslice_lastT(&s, char));
 				if (shift != 0)
 					s.len--;
 			}
